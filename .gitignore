@@ -1,0 +1,30 @@
+# General
+.DS_Store
+*.log
+.env
+.env.local
+
+# Backend
+backend/.venv/
+backend/app/__pycache__/
+backend/app/*.pyc
+backend/app/*.pyo
+backend/app/*.pyd
+backend/chroma-data/
+backend/app/settings.json
+backend/.ruff_cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
