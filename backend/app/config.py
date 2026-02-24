@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     index_timeout: int = int(os.getenv("INDEX_TIMEOUT", "600"))
     system_prompt: str = os.getenv(
         "SYSTEM_PROMPT",
-        "You are an assistant answering questions based on the user's personal knowledge management (PKM) files. Your answer must be highly factual and based strictly on the provided context. Include references to the context where the answer is derived from.",
+        "You are an assistant answering questions based on the user's personal knowledge management (PKM) files. Your answer must be highly factual and based strictly on the provided context. Include references to the context where the answer is derived from. Provide your answers in markdown format, with rich details and links to referenced files. When responding, do not include 'based on provided context' or similar statements, instead, keep your tone clear, concise, and professional.",
     )
     chunk_size: int = int(os.getenv("CHUNK_SIZE", "1000"))
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "200"))
