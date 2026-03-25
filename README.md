@@ -1,69 +1,82 @@
-# Dido - PKM RAG Service
+# Dido - PKM Assistant (macOS)
 
-Dido is a full-stack, AI-powered Personal Knowledge Management (PKM) Retrieval-Augmented Generation (RAG) assistant. It allows you to index a local directory containing your documents and query them locally using language models.
+Dido is a native macOS application designed as an intelligent Personal Knowledge Management (PKM) assistant. It leverages Retrieval-Augmented Generation (RAG) to allow you to index local documents and query them using Large Language Models (LLMs) like Ollama or OpenAI-compatible APIs, all while maintaining a premium, native user experience.
 
-Supported file formats include PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx), Markdown, Text, HTML, and RTF files.
+## 🚀 Features
 
-## Features
+- **Native macOS Experience:** Built with SwiftUI for a sleek, responsive, and energy-efficient desktop application.
+- **Local Indexing & RAG:** Seamlessly indexes your local PKM directory (Markdown, PDF, RTF, etc.) and uses vector search to provide context to your LLM queries.
+- **Top-Tier Security:** 
+    - **App Sandboxing:** Fully sandboxed for secure operation.
+    - **Keychain Integration:** Sensitive API tokens are stored securely in the macOS Keychain.
+    - **Security-Scoped Bookmarks:** Remembers your PKM root folder across restarts without compromising system security.
+- **Swift 6 & Modern Concurrency:** Fully aligned with Swift 6's strict concurrency requirements for a crash-free, thread-safe experience.
+- **Flexible AI Endpoints:** Support for local Ollama instances and OpenAI-compatible APIs (planned).
 
-- **File Indexing:** Indexes documents from a target directory and chunks their content into vector embeddings using ChromaDB.
-- **RAG via LLMs:** Built-in connection to Ollama/OpenAI-compatible language models to answer questions based strictly on your indexed documents.
-- **Lazy Indexing:** Intelligently extracts metadata initially and waits to perform heavy text-chunking on demand when files are accessed.
-- **VLM Support Context:** Context-aware endpoint capable of identifying Vision-Language Models for OCR or broader multimodal understanding.
-- **Modern UI:** A sleek React frontend using Vite to manage configurations, explore your files, and chat with your PKM.
-- **Metadata Editor:** Directly modify metadata attributes on indexed files to better sort your document sets.
+## 🛠 Tech Stack
 
-## Architecture
+- **Language:** Swift 6.0+
+- **Framework:** SwiftUI
+- **Database:** SwiftData (for document metadata and indexing)
+- **Project Management:** [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+- **Build System:** xcodebuild / Xcode
 
-The system consists of two main components:
-1. **Frontend:** React + Vite, communicating with the backend API.
-2. **Backend:** FastAPI (Python), utilizing ChromaDB as the underlying vector datastore.
+## 📋 Requirements
 
-## Requirements
+- **macOS:** 14.0 (Sonoma) or newer.
+- **Xcode:** 15.3 or newer.
+- **XcodeGen:** Required to generate the project file.
+- **Ollama:** (Optional) For local LLM inference.
 
-Ensure the follow prerequisites are met:
-- **macOS** or **Linux** based operation system recommended.
-- **Python 3.10+**
-- **uv:** The extremely fast Python package and project manager. To install it, you can use:
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-- **Node.js (v18+)** and **npm**
+## 🔨 Build Instructions
 
-## Getting Started
+Dido uses `XcodeGen` to manage its project structure. Follow these steps to build the app from source:
 
-You can choose to run Dido locally in Development mode or Production mode without any container requirements.
+1. **Install XcodeGen:**
+   ```bash
+   brew install xcodegen
+   ```
 
-### Production Run (Optimised)
+2. **Generate the Xcode Project:**
+   Navigate to the repository root and run:
+   ```bash
+   xcodegen generate
+   ```
 
-This method prepares the static frontend bundle and serves the complete application gracefully through the FastAPI backend via a unified web service port.
+3. **Open the Project:**
+   ```bash
+   open Dido.xcodeproj
+   ```
 
+4. **Build & Run:**
+   Select the **Dido** scheme and target **My Mac**. Press `Cmd + R` to build and run.
+
+### Command Line Build
+To build a release version (unsigned) for Apple Silicon:
 ```bash
-./run_prod.sh /path/to/your/pkm/root
+xcodebuild -project Dido.xcodeproj -scheme Dido -configuration Release -derivedDataPath build_output clean build CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -sdk macosx ARCHS="arm64"
 ```
 
-Once running, navigate to `http://127.0.0.1:8080` in your browser.
+## 🤝 Contributing
 
-### Development Run
+We welcome contributions from the community! To maintain high code quality and consistency, please follow these guidelines:
 
-If you wish to work on the UI directly and need hot-reloading for the React application:
+1. **Fork & Branch:** Fork the repository and create a feature branch (`feature/my-new-feature`).
+2. **Coding Standards:**
+   - Follow [Swift API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/).
+   - Ensure all new code is **Swift 6 Concurrency-safe**.
+   - Keep views modular and under 200 lines where possible.
+3. **Pull Requests:** Provide a clear description of changes, screenshots for UI modifications, and ensure the project builds correctly.
+4. **Best Practices:** Prefer `struct` over `class`, use `@Observable` for state, and avoid force unwrapping (`!`).
 
-```bash
-./run_local.sh /path/to/your/pkm/root
-```
+## ⚖️ License
 
-This will run to separate processes:
-- The FastAPI Backend on `http://127.0.0.1:8080`.
-- The Vite Frontend Server on `http://127.0.0.1:5173`.
+**Non-Commercial Use Only.**
+Copyright (c) 2026 Dido. All rights reserved.
 
-Access the application via the local Vite port.
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, or distribute copies of the Software, provided that such use is for **non-commercial purposes only**.
 
-## Troubleshooting
+Commercial use, including but not limited to selling the software or using it as part of a for-profit service, is strictly prohibited without prior written consent from the author.
 
-- **No Output Extracted:** Double-check whether `.meta.json` exists incorrectly beside your files, or consider running a manual re-index within the frontend UI if the app thinks the file is already completed.
-- **Read-Only Database Errors:** If you are migrating away from containers, make sure the local `./backend/chroma-data` directory has the necessary write permissions for your host's user.
-- **404 Model generation Errors:** Verify that the API Endpoint configured within the Frontend's `Settings` matches your hosting solution (e.g. `http://localhost:11434` for a local Ollama daemon).
-
-## License
-
-MIT
+---
+*Built with ❤️ for the macOS community.*
