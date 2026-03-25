@@ -1,30 +1,31 @@
 # General
 .DS_Store
 *.log
-.env
-.env.local
+Dido.dmg
 
-# Backend
-backend/.venv/
-backend/app/__pycache__/
-backend/app/*.pyc
-backend/app/*.pyo
-backend/app/*.pyd
-backend/chroma-data/
-backend/app/settings.json
-backend/.ruff_cache/
-
-# Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/dist-ssr/
-frontend/.vite/
-frontend/npm-debug.log*
-frontend/yarn-debug.log*
-frontend/yarn-error.log*
-
-# Editor directories and files
-.idea/
-.vscode/
+# Xcode / Apple
+build/
+DerivedData/
+build_output/
 *.swp
 *.swo
+*.orig
+*.rej
+UserInterfaceState.xcuserstate
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+*.xcuserstate
+
+# Project Generation (XcodeGen)
+# It's recommended to ignore the project file if it's generated from project.yml
+Dido.xcodeproj
+
+# Editor / Tooling
+.gemini/
+.vscode/
+
+# Packages
+.build/
+.swiftpm/

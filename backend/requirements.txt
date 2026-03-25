@@ -1,9 +1,0 @@
-fastapi
-uvicorn
-pydantic
-pydantic-settings
-chromadb
-docling
-httpx
-python-multipart
-pypdfium2

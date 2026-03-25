@@ -1,0 +1,37 @@
+name: Dido
+options:
+  bundleIdPrefix: com.dido
+  createIntermediateGroups: true
+targets:
+  Dido:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    entitlements:
+      path: Dido/Dido.entitlements
+    sources:
+      - path: Dido
+    settings:
+      CODE_SIGN_STYLE: Automatic
+      DEVELOPMENT_TEAM: "" # Needs to be set if deploying, empty for local sim/builds
+      ENABLE_PREVIEWS: YES
+      GENERATE_INFOPLIST_FILE: YES
+      CLANG_ENABLE_OBJC_ARC: YES
+      SWIFT_VERSION: 6.0
+schemes:
+  Dido:
+    build:
+      targets:
+        Dido: [run, test, profile, analyze, archive]
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+      INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Dido"
+      INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
