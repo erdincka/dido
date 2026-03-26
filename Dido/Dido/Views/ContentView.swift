@@ -5,26 +5,8 @@ struct ContentView: View {
     
     var body: some View {
         NavigationSplitView {
-            List(selection: $appState.activeItem) {
-                if !appState.selectedItems.isEmpty {
-                    ForEach(appState.selectedItems) { item in
-                        NavigationLink(value: item) {
-                            Label(item.name, systemImage: item.isDirectory ? "folder" : "doc.text").imageScale(.large)
-                        }
-                        .contextMenu {
-                            Button("Remove") {
-                                removeItem(item)
-                            }
-                            Button("Open in Finder") {
-                                NSWorkspace.shared.activateFileViewerSelecting([item.url])
-                            }
-                        }
-                    }
-                }
-        }
-            .padding(.bottom, 28)
-            .navigationTitle("Dido")
-            .listStyle(.sidebar)
+            LibrarySidebarView()
+                .listStyle(.sidebar)
         } detail: {
             ZStack(alignment: .top) {
                 Group {
@@ -34,7 +16,7 @@ struct ContentView: View {
                         ChatView(selectedItem: activeItem)
                             .id(activeItem.id)
                     } else {
-                        FileExplorerView()
+                        landingView
                     }
                 }
                 .environment(\.dynamicTypeSize, .xLarge)
@@ -46,37 +28,43 @@ struct ContentView: View {
                         .zIndex(100)
                 }
             }
-        }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: appState.notificationMessage)
-        .toolbar {
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    appState.activeItem = nil
-                    appState.showingSettings = false
-                } label: {
-                    Label("Library", systemImage: "books.vertical")
-                }
-                .help("Library")
-            }
-            
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    appState.activeItem = nil
-                    appState.showingSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gear")
-                }
-                .help("Settings")
-            }
-        }
-        .onChange(of: appState.activeItem) { _, newValue in
-            if newValue != nil {
-                appState.showingSettings = false
-            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: appState.notificationMessage)
         }
         .safeAreaInset(edge: .bottom) {
             StatusbarView()
         }
+    }
+    
+    @ViewBuilder
+    private var landingView: some View {
+        VStack(spacing: 30) {
+            Image(systemName: "sparkles")
+                .symbolEffect(.variableColor.iterative, options: .repeating)
+                .font(.system(size: 80))
+                .foregroundStyle(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+            
+            VStack(spacing: 12) {
+                Text("Dido Assistant")
+                    .font(.system(.title, design: .rounded, weight: .bold))
+                
+                Text("Select any file or folder in the sidebar to start a context-aware chat.")
+                    .font(.system(.body, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 400)
+            }
+            
+            Button {
+                appState.showingSettings = true
+            } label: {
+                Label("Open Settings", systemImage: "gearshape.fill")
+                    .padding(.horizontal)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
     }
     
     private func removeItem(_ item: SelectedItem) {

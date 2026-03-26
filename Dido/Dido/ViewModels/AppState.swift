@@ -13,6 +13,7 @@ final class AppState {
     
     var activeItem: SelectedItem?
     var showingSettings: Bool = false
+    var searchText: String = ""
     
     var pkmRootPath: String = "" {
         didSet {
@@ -96,13 +97,26 @@ final class AppState {
     }
     
     func addSelectedItem(url: URL) {
-        if !selectedItems.contains(where: { $0.url == url }) {
+        if let existing = selectedItems.first(where: { $0.url == url }) {
+            activeItem = existing
+        } else {
             let newItem = SelectedItem(url: url)
             selectedItems.append(newItem)
             activeItem = newItem
-        } else {
-            activeItem = selectedItems.first(where: { $0.url == url })
         }
+    }
+    
+    func selectFile(_ url: URL) {
+        if let existing = selectedItems.first(where: { $0.url == url }) {
+            activeItem = existing
+        } else {
+            // For navigation, we might just want to set the activeItem without adding to saved list 
+            // OR we add it so history is preserved. Let's add it for history.
+            let newItem = SelectedItem(url: url)
+            selectedItems.append(newItem)
+            activeItem = newItem
+        }
+        showingSettings = false
     }
     
     @MainActor
