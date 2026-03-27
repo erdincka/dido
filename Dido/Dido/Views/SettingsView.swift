@@ -6,7 +6,6 @@ struct SettingsView: View {
     private var chunker = DocumentChunkingService.shared
     @ObservationIgnored private var appState = AppState.shared
     
-    @State private var endpointType: APIEndpointType
     @State private var externalBaseURL: String
     @State private var externalApiToken: String
     @State private var selectedModel: String
@@ -17,9 +16,9 @@ struct SettingsView: View {
     
     @State private var pkmRootPath: String
     @State private var pkmRootBookmark: Data?
+    @State private var isRefreshing: Bool = false
     
     init() {
-        _endpointType = State(initialValue: LLMService.shared.endpointType)
         _externalBaseURL = State(initialValue: LLMService.shared.externalBaseURL)
         _externalApiToken = State(initialValue: LLMService.shared.externalApiToken)
         _selectedModel = State(initialValue: LLMService.shared.selectedModel)
@@ -36,75 +35,69 @@ struct SettingsView: View {
         VStack {
             Form {
                 Section("LLM Configuration") {
-                    Picker("API Type", selection: $endpointType) {
-                        ForEach(APIEndpointType.allCases) { type in
-                            Text(type.rawValue).tag(type)
+                    TextField("Base URL", text: $externalBaseURL, prompt: Text("https://api.openai.com/v1"))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            Task {
+                                isRefreshing = true
+                                llmService.externalBaseURL = externalBaseURL
+                                await llmService.fetchAvailableModels()
+                                let count = llmService.availableModels.count
+                                if count > 0 {
+                                    appState.showNotification("Found \(count) models", type: .success)
+                                } else {
+                                    appState.showNotification("No models found at this URL", type: .error)
+                                }
+                                selectedModel = llmService.selectedModel
+                                isRefreshing = false
+                            }
                         }
-                    }
-                    .pickerStyle(.segmented)
                     
-                    if endpointType == .openAICompatible {
-                        Text("OpenAI API Compatible endpoint is planned for future releases.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.bottom, 4)
+                    SecureField("API Token (Optional)", text: $externalApiToken)
+                        .textFieldStyle(.roundedBorder)
                         
-                        TextField("Base URL", text: .constant("https://api.openai.com/v1"))
-                            .textFieldStyle(.roundedBorder)
-                            .disabled(true)
-                        
-                        SecureField("API Token (Optional)", text: .constant("••••••••••••••••••••••••"))
-                            .textFieldStyle(.roundedBorder)
-                            .disabled(true)
-                            
-                        TextField("Model Name", text: .constant("gpt-4o"))
-                            .textFieldStyle(.roundedBorder)
-                            .disabled(true)
-                    } else {
-                        TextField("Base URL", text: $externalBaseURL)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit {
-                                Task {
-                                    llmService.externalBaseURL = externalBaseURL
-                                    await llmService.fetchAvailableModels()
-                                    selectedModel = llmService.selectedModel
+                    HStack {
+                        if llmService.availableModels.isEmpty {
+                            TextField("Model Name", text: $selectedModel, prompt: Text("gpt-4o"))
+                                .textFieldStyle(.roundedBorder)
+                        } else {
+                            Picker("Model Name", selection: $selectedModel) {
+                                if selectedModel.isEmpty {
+                                    Text("Select a model...").tag("")
+                                } else if !llmService.availableModels.contains(selectedModel) {
+                                    Text(selectedModel).tag(selectedModel)
+                                }
+                                
+                                ForEach(llmService.availableModels, id: \.self) { model in
+                                    Text(model).tag(model)
                                 }
                             }
+                            .pickerStyle(.menu)
+                        }
                         
-                        SecureField("API Token (Optional)", text: $externalApiToken)
-                            .textFieldStyle(.roundedBorder)
-                            
-                        HStack {
-                            if llmService.availableModels.isEmpty {
-                                TextField("Model Name", text: $selectedModel)
-                                    .textFieldStyle(.roundedBorder)
+                        Button(action: {
+                            Task {
+                                isRefreshing = true
+                                llmService.externalBaseURL = externalBaseURL
+                                await llmService.fetchAvailableModels()
+                                let count = llmService.availableModels.count
+                                if count > 0 {
+                                    appState.showNotification("Successfully found \(count) models", type: .success)
+                                } else {
+                                    appState.showNotification("Failed to fetch models: Check URL or Token", type: .error)
+                                }
+                                selectedModel = llmService.selectedModel
+                                isRefreshing = false
+                            }
+                        }) {
+                            if isRefreshing {
+                                ProgressView().controlSize(.small)
                             } else {
-                                Picker("Model Name", selection: $selectedModel) {
-                                    if selectedModel.isEmpty {
-                                        Text("Select a model...").tag("")
-                                    } else if !llmService.availableModels.contains(selectedModel) {
-                                        Text(selectedModel).tag(selectedModel)
-                                    }
-                                    
-                                    ForEach(llmService.availableModels, id: \.self) { model in
-                                        Text(model).tag(model)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                            }
-                            
-                            Button(action: {
-                                Task {
-                                    llmService.externalBaseURL = externalBaseURL
-                                    await llmService.fetchAvailableModels()
-                                    selectedModel = llmService.selectedModel
-                                }
-                            }) {
                                 Image(systemName: "arrow.triangle.2.circlepath")
                             }
-                            .buttonStyle(.plain)
-                            .help("Refresh Models")
                         }
+                        .buttonStyle(.plain)
+                        .help("Refresh Models")
                     }
                     
                     TextEditor(text: $systemPrompt)
@@ -143,7 +136,7 @@ struct SettingsView: View {
         .padding(.bottom, 28)
         .navigationTitle("Settings")
         .onAppear {
-            if endpointType == .ollama && llmService.availableModels.isEmpty {
+            if llmService.availableModels.isEmpty {
                 Task {
                     await llmService.fetchAvailableModels()
                     selectedModel = llmService.selectedModel
@@ -175,7 +168,6 @@ struct SettingsView: View {
     }
     
     private func saveSettings() {
-        llmService.endpointType = endpointType
         llmService.externalBaseURL = externalBaseURL
         llmService.externalApiToken = externalApiToken
         llmService.selectedModel = selectedModel

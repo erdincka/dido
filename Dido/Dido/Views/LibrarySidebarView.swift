@@ -38,17 +38,40 @@ struct LibrarySidebarView: View {
             if !appState.selectedItems.isEmpty {
                 Section("Recent Chats") {
                     ForEach(appState.selectedItems.reversed().prefix(8)) { item in
-                        Button {
-                            appState.activeItem = item
-                        } label: {
-                            HStack {
-                                Image(systemName: "bubble.left.and.bubble.right")
+                        HStack {
+                             Button {
+                                 appState.activeItem = item
+                                 appState.showingSettings = false
+                             } label: {
+                                HStack {
+                                    Image(systemName: "bubble.left.and.bubble.right")
+                                        .foregroundColor(.secondary)
+                                    Text(item.name)
+                                        .lineLimit(1)
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button {
+                                withAnimation {
+                                    appState.removeSelectedItem(item)
+                                }
+                            } label: {
+                                Image(systemName: "xmark.circle")
                                     .foregroundColor(.secondary)
-                                Text(item.name)
-                                    .lineLimit(1)
+                                    .opacity(0.6)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove from Recent")
+                        }
+                        .contextMenu {
+                            Button("Remove from Recent") {
+                                withAnimation {
+                                    appState.removeSelectedItem(item)
+                                }
                             }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }

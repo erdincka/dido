@@ -6,7 +6,7 @@ struct StatusbarView: View {
     var body: some View {
         HStack {
             HStack(spacing: 12) {
-                Label(appState.isLocalModel ? "Ollama" : "Remote API", 
+                Label(appState.isLocalModel ? "Local API" : "Remote API", 
                       systemImage: appState.isLocalModel ? "laptopcomputer" : "network")
                 
                 Divider().frame(height: 12)

@@ -2,11 +2,7 @@ import Foundation
 import os
 import SwiftData
 
-enum APIEndpointType: String, CaseIterable, Identifiable {
-    case ollama = "Ollama"
-    case openAICompatible = "OpenAI API Compatible"
-    var id: String { self.rawValue }
-}
+// API Endpoint type is now strictly OpenAI API Compatible as per user request.
 
 enum LLMServiceError: Error, LocalizedError {
     case invalidURL
@@ -42,10 +38,7 @@ final class LLMService {
     static let shared = LLMService()
     
     // Configuration
-    var endpointType: APIEndpointType = .ollama {
-        didSet { UserDefaults.standard.set(endpointType.rawValue, forKey: "endpointType") }
-    }
-    var externalBaseURL: String = "http://127.0.0.1:11434" {
+    var externalBaseURL: String = "https://api.openai.com/v1" {
         didSet { UserDefaults.standard.set(externalBaseURL, forKey: "externalBaseURL") }
     }
     var externalApiToken: String {
@@ -65,7 +58,10 @@ final class LLMService {
         }
     }
     var selectedModel: String = "" {
-        didSet { UserDefaults.standard.set(selectedModel, forKey: "selectedModel") }
+        didSet { 
+            UserDefaults.standard.set(selectedModel, forKey: "selectedModel")
+            detectVisionSupport()
+        }
     }
     var systemPrompt: String = """
     You are an intelligent and precise assistant specialized in extracting and synthesizing information from the provided context (which includes documents, folders, and files).
@@ -80,20 +76,18 @@ final class LLMService {
     }
     
     var availableModels: [String] = []
+    var supportsVision: Bool = false
     
     private let logger = Logger(subsystem: "com.dido", category: "LLMService")
     
     private init() {
-        if let storedTypeStr = UserDefaults.standard.string(forKey: "endpointType"),
-           let storedType = APIEndpointType(rawValue: storedTypeStr) {
-            self.endpointType = storedType
-        }
         if let storedURL = UserDefaults.standard.string(forKey: "externalBaseURL") {
             self.externalBaseURL = storedURL
         }
         // Removed direct assignment of externalApiToken from UserDefaults
         if let storedModel = UserDefaults.standard.string(forKey: "selectedModel") {
             self.selectedModel = storedModel
+            detectVisionSupport()
         }
         if let storedPrompt = UserDefaults.standard.string(forKey: "systemPrompt") {
             self.systemPrompt = storedPrompt
@@ -129,50 +123,52 @@ final class LLMService {
             throw LLMServiceError.endpointNotConfigured
         }
         
-        if endpointType == .ollama {
-            return try await generateViaExternalAPI(prompt: prompt, context: context, images: images)
-        } else {
-            // Placeholder for OpenAI API compatible
-            return "OpenAI API Compatible endpoint is planned for future releases. Please switch to Ollama in Settings."
-        }
+        return try await generateViaOpenAICompatibleAPI(prompt: prompt, context: context, images: images)
     }
     
     func fetchAvailableModels() async {
-        guard endpointType == .ollama else {
-            await MainActor.run { self.availableModels = [] }
-            return
-        }
-        
-        guard let url = URL(string: "\(externalBaseURL)/api/tags") else {
-            logger.error("Invalid URL for tags: \(self.externalBaseURL)/api/tags")
+        guard let url = URL(string: "\(externalBaseURL)/models") else {
+            logger.error("Invalid URL for models: \(self.externalBaseURL)/models")
             return
         }
         
         do {
             var request = URLRequest(url: url)
             request.timeoutInterval = 15.0
+            if !externalApiToken.isEmpty {
+                request.setValue("Bearer \(externalApiToken)", forHTTPHeaderField: "Authorization")
+            }
+            
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
                 return
             }
             
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let modelsArray = json["models"] as? [[String: Any]] else {
+                  let modelsArray = json["data"] as? [[String: Any]] else {
                 return
             }
             
-            let models = modelsArray.compactMap { $0["name"] as? String }
+            let models = modelsArray.compactMap { $0["id"] as? String }
             
             await MainActor.run {
                 if !models.contains(self.selectedModel) && !models.isEmpty {
                     self.selectedModel = models.first!
                 }
                 self.availableModels = models
+                self.detectVisionSupport()
             }
         } catch {
             logger.error("Failed to fetch available models: \(error.localizedDescription)")
             await MainActor.run { self.availableModels = [] }
         }
+    }
+    
+    private func detectVisionSupport() {
+        let visionKeywords = ["vision", "vlm", "multimodal", "llava", "gpt-4o", "gpt-4-turbo", "gemini", "claude-3"]
+        let lowercasedModel = selectedModel.lowercased()
+        self.supportsVision = visionKeywords.contains { lowercasedModel.contains($0) }
+        logger.info("Vision support detected: \(self.supportsVision) for model: \(self.selectedModel)")
     }
     
     // MARK: - Helper Methods
@@ -292,22 +288,38 @@ final class LLMService {
     
     // MARK: - API Calls
     
-    private func generateViaExternalAPI(prompt: String, context: String, images: [String]) async throws -> String {
-        guard let url = URL(string: "\(externalBaseURL)/api/generate") else {
-            logger.error("Invalid URL: \(self.externalBaseURL)/api/generate")
+    private func generateViaOpenAICompatibleAPI(prompt: String, context: String, images: [String]) async throws -> String {
+        guard let url = URL(string: "\(externalBaseURL)/chat/completions") else {
+            logger.error("Invalid URL: \(self.externalBaseURL)/chat/completions")
             throw LLMServiceError.invalidURL
         }
         
-        let fullPrompt = "\(systemPrompt)\n\nContext:\n\(context)\n\nQuestion:\n\(prompt)"
-        var payload: [String: Any] = [
-            "model": selectedModel,
-            "prompt": fullPrompt,
-            "stream": false
+        let fullPrompt = "Context:\n\(context)\n\nQuestion:\n\(prompt)"
+        
+        var messageContent: [[String: Any]] = [
+            ["type": "text", "text": fullPrompt]
         ]
         
-        if !images.isEmpty {
-            payload["images"] = images
+        // Use images only if supported or if we should attempt it
+        if !images.isEmpty && supportsVision {
+            for base64 in images {
+                messageContent.append([
+                    "type": "image_url",
+                    "image_url": ["url": "data:image/jpeg;base64,\(base64)"]
+                ])
+            }
+        } else if !images.isEmpty && !supportsVision {
+            logger.warning("Images provided but vision support not detected for model \(self.selectedModel). Sending text only.")
         }
+        
+        let payload: [String: Any] = [
+            "model": selectedModel,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": messageContent]
+            ],
+            "stream": false
+        ]
         
         var request = URLRequest(url: url)
         request.timeoutInterval = 900.0
@@ -334,12 +346,17 @@ final class LLMService {
             AppState.shared.showNotification("Unauthorized access to API", type: .error)
             throw LLMServiceError.unauthorized
         default: 
+            let errorBody = String(data: data, encoding: .utf8) ?? "No error body"
+            logger.error("API Error: \(httpResponse.statusCode), Body: \(errorBody)")
             AppState.shared.showNotification("API Error: \(httpResponse.statusCode)", type: .error)
             throw LLMServiceError.apiError(statusCode: httpResponse.statusCode)
         }
         
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let responseText = json["response"] as? String else {
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let responseText = message["content"] as? String else {
             AppState.shared.showNotification("Failed to decode AI response", type: .error)
             throw LLMServiceError.decodingError
         }
@@ -347,14 +364,14 @@ final class LLMService {
         return responseText
     }
     
-    func generateEmbeddings(prompt: String, model: String = "nomic-embed-text") async throws -> [Float] {
-        guard let url = URL(string: "\(externalBaseURL)/api/embeddings") else {
+    func generateEmbeddings(prompt: String, model: String = "text-embedding-3-small") async throws -> [Float] {
+        guard let url = URL(string: "\(externalBaseURL)/embeddings") else {
             throw LLMServiceError.invalidURL
         }
         
         let payload: [String: Any] = [
             "model": model,
-            "prompt": prompt
+            "input": prompt
         ]
         
         var request = URLRequest(url: url)
@@ -373,7 +390,9 @@ final class LLMService {
         }
         
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let embedding = json["embedding"] as? [Double] else {
+              let dataArray = json["data"] as? [[String: Any]],
+              let firstData = dataArray.first,
+              let embedding = firstData["embedding"] as? [Double] else {
             throw LLMServiceError.decodingError
         }
         

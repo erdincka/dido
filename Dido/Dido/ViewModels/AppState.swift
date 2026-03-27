@@ -59,8 +59,7 @@ final class AppState {
     var indexedCount: Int = 0
     var indexSize: String = "0 MB"
     var isLocalModel: Bool {
-        LLMService.shared.endpointType == .ollama && 
-        (LLMService.shared.externalBaseURL.contains("localhost") || LLMService.shared.externalBaseURL.contains("127.0.0.1"))
+        LLMService.shared.externalBaseURL.contains("localhost") || LLMService.shared.externalBaseURL.contains("127.0.0.1")
     }
     
     private init() {
@@ -103,6 +102,15 @@ final class AppState {
             let newItem = SelectedItem(url: url)
             selectedItems.append(newItem)
             activeItem = newItem
+        }
+    }
+    
+    func removeSelectedItem(_ item: SelectedItem) {
+        if let index = selectedItems.firstIndex(of: item) {
+            if activeItem == item {
+                activeItem = nil
+            }
+            selectedItems.remove(at: index)
         }
     }
     

@@ -71,6 +71,12 @@ struct ChatView: View {
                         .help("Quick Look")
                     }
                     
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([selectedItem.url]) } label: {
+                        Image(systemName: "arrow.right.circle")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Open in Finder")
+                    
                     Button { showMetadata.toggle() } label: {
                         Image(systemName: "info.circle")
                     }

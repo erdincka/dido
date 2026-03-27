@@ -125,13 +125,8 @@ final class DocumentIndexerService {
             // Optional: Generate embeddings via LLMService
             var vector: [Float] = []
             do {
-                if llmService.endpointType == .ollama {
-                    // We only use the embedding if model is explicitly provided in LLMService or we default to nomic-embed-text
-                    vector = try await llmService.generateEmbeddings(prompt: chunk, model: "nomic-embed-text")
-                } else {
-                    // Fake vector for now
-                    vector = [Float](repeating: 0.0, count: 1536)
-                }
+                // Standardizing on OpenAI compatible embedding call
+                vector = try await llmService.generateEmbeddings(prompt: chunk, model: "text-embedding-3-small")
             } catch {
                 logger.error("Embedding generation failed for chunk: \(error.localizedDescription)")
                 // Default zero vector if failed
