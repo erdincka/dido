@@ -33,6 +33,8 @@ final class DocumentParserService {
                 logger.error("Failed to read text file: \(error.localizedDescription)")
                 return nil
             }
+        case "docx", "pptx", "xlsx", "epub":
+            return await parseWithMarkitDown(url: fileURL)
         default:
             return nil
         }
@@ -70,7 +72,60 @@ final class DocumentParserService {
         }
     }
     
-    /// Extracts images as base64 strings from a PDF for vision-capable models
+    private func parseWithMarkitDown(url: URL) async -> String? {
+        let logger = self.logger
+        return await Task.detached { () -> String? in
+            let tempDir = FileManager.default.temporaryDirectory
+            let tempFileURL = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension(url.pathExtension)
+            
+            let fileAccess = url.startAccessingSecurityScopedResource()
+            defer { if fileAccess { url.stopAccessingSecurityScopedResource() } }
+            
+            do {
+                try FileManager.default.copyItem(at: url, to: tempFileURL)
+            } catch {
+                logger.error("Failed to copy file to temp dir: \(error.localizedDescription)")
+                return nil
+            }
+            
+            defer {
+                try? FileManager.default.removeItem(at: tempFileURL)
+            }
+            
+            do {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/uvx")
+                process.arguments = ["--from", "markitdown[all]", "markitdown", tempFileURL.path]
+                
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                let errPipe = Pipe()
+                process.standardError = errPipe
+                
+                try process.run()
+                process.waitUntilExit()
+                
+                let data = try pipe.fileHandleForReading.readToEnd() ?? Data()
+                let errData = try errPipe.fileHandleForReading.readToEnd() ?? Data()
+                
+                if process.terminationStatus != 0 {
+                    let errString = String(decoding: errData, as: UTF8.self)
+                    logger.error("MarkItDown failed for \(url.lastPathComponent): \(errString)")
+                    return nil
+                }
+                
+                let output = String(decoding: data, as: UTF8.self)
+                if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return " "
+                }
+                return output
+            } catch {
+                logger.error("Failed to execute markitdown: \(error.localizedDescription)")
+                return nil
+            }
+        }.value
+    }
+        /// Extracts images as base64 strings from a PDF for vision-capable models
     func extractImagesAsBase64(from url: URL) async -> [String]? {
         guard url.pathExtension.lowercased() == "pdf",
               let pdfDocument = PDFDocument(url: url) else { return nil }

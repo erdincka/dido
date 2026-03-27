@@ -88,7 +88,7 @@ final class DocumentIndexerService {
         let ext = url.pathExtension.lowercased()
         
         // Allowed extensions
-        let validExtensions = ["pdf", "rtf", "md", "txt", "markdown", "csv", "json", "swift", "py", "js", "html", "css", "xml", "yaml"]
+        let validExtensions = ["pdf", "rtf", "md", "txt", "markdown", "csv", "json", "swift", "py", "js", "html", "css", "xml", "yaml", "docx", "pptx", "xlsx", "epub"]
         
         guard validExtensions.contains(ext) else {
             logger.info("Skipping \(path): Unsupported extension")
