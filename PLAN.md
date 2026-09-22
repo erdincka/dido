@@ -43,8 +43,17 @@ Fix what is broken before adding anything.
 - [x] Preview pane beside the chat: Markdown, PDF and Quick Look.
 - [x] Content search in the sidebar, not just file names.
 
-## Phase 4: Polish
+## Phase 4: Polish (done 2026-09-22)
 
-- [ ] Native `Settings` scene with General, AI and Index tabs.
-- [ ] Keyboard shortcuts and a menu bar quick-ask window.
-- [ ] `MARKETING_VERSION` in `project.yml`; a release build script.
+- [x] Native `Settings` scene with General, AI and Index tabs.
+- [x] Keyboard shortcuts and a menu bar quick-ask window.
+- [x] `MARKETING_VERSION` in `project.yml`; a release build script.
+
+## Later
+
+Ideas not yet scheduled.
+
+- [ ] Highlight the exact cited range inside rendered Markdown and PDF pages.
+- [ ] Per-tab sizing of the Settings window.
+- [ ] Signing and notarisation, if the app is ever shared beyond this Mac.
+- [ ] A "why this answer" view showing the retrieved passages and their scores.

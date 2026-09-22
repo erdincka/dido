@@ -11,8 +11,8 @@ struct ChatView: View {
     @State private var streamingText = ""
     @State private var generation: Task<Void, Never>?
     @State private var previewURL: URL?
-    @State private var showPreview = false
     @State private var previewCitation: Citation?
+    @Bindable private var appState = AppState.shared
 
     private let chatStore = ChatStore.shared
     private let llm = LLMService.shared
@@ -22,7 +22,7 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatHeaderView(item: selectedItem, previewURL: $previewURL, showPreview: $showPreview)
+            ChatHeaderView(item: selectedItem, previewURL: $previewURL, showPreview: $appState.previewVisible)
             Divider()
             transcript
             Divider()
@@ -35,7 +35,7 @@ struct ChatView: View {
             )
         }
         .quickLookPreview($previewURL)
-        .inspector(isPresented: $showPreview) {
+        .inspector(isPresented: $appState.previewVisible) {
             PreviewPane(item: selectedItem, citation: previewCitation)
                 .inspectorColumnWidth(min: 320, ideal: 420, max: 720)
         }
@@ -153,7 +153,7 @@ struct ChatView: View {
     /// Shows a cited passage in the preview pane, in context of its neighbours.
     private func openSource(_ citation: Citation) {
         previewCitation = citation
-        showPreview = true
+        appState.previewVisible = true
     }
 
     /// The [n] markers the model actually used, including lists such as [2, 5], so the sources row matches the answer.

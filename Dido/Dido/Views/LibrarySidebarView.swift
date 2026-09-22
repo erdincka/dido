@@ -22,7 +22,7 @@ struct LibrarySidebarView: View {
                     Label("Ask the whole library", systemImage: "books.vertical")
                 }
                 .buttonStyle(.plain)
-                .background(RoundedRectangle(cornerRadius: 5).fill(appState.activeItem?.isLibrary == true && !appState.showingSettings ? Color.accentColor.opacity(0.15) : .clear))
+                .background(RoundedRectangle(cornerRadius: 5).fill(appState.activeItem?.isLibrary == true && !appState.showingDashboard ? Color.accentColor.opacity(0.15) : .clear))
             }
 
             Section("Library") {
@@ -46,10 +46,10 @@ struct LibrarySidebarView: View {
             }
         }
         .navigationTitle("Dido")
-        .searchable(text: $appState.searchText, placement: .sidebar, prompt: "Search names and contents…")
+        .searchable(text: $appState.searchText, isPresented: $appState.searchPresented, placement: .sidebar, prompt: "Search names and contents…")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { appState.showingSettings = true } label: {
+                SettingsLink {
                     Label("Settings", systemImage: "gearshape")
                 }
             }
@@ -170,7 +170,7 @@ struct SidebarFileRow: View {
     var subtitle: String? = nil
 
     private let appState = AppState.shared
-    private var isActive: Bool { appState.activeItem?.url == item.url && !appState.showingSettings }
+    private var isActive: Bool { appState.activeItem?.url == item.url && !appState.showingDashboard }
 
     var body: some View {
         Button {
@@ -215,7 +215,6 @@ struct RecentThreadRow: View {
         HStack {
             Button {
                 appState.activeItem = thread.item
-                appState.showingSettings = false
                 appState.showingDashboard = false
             } label: {
                 HStack {

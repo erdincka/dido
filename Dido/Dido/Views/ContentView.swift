@@ -16,9 +16,7 @@ struct ContentView: View {
                         StoreErrorBanner(message: storeError)
                     }
                     Group {
-                        if appState.showingSettings {
-                            SettingsView()
-                        } else if appState.showingDashboard {
+                        if appState.showingDashboard {
                             IndexDashboardView()
                         } else if let activeItem = appState.activeItem {
                             ChatView(selectedItem: activeItem)
@@ -78,9 +76,7 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                 }
-                Button {
-                    appState.showingSettings = true
-                } label: {
+                SettingsLink {
                     Label("Settings", systemImage: "gearshape.fill")
                         .padding(.horizontal)
                 }

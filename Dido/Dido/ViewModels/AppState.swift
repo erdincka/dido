@@ -15,9 +15,15 @@ final class AppState {
     var pendingQuestion: String?
     /// A passage to show in the preview pane as soon as the chat for `activeItem` appears.
     var pendingCitation: Citation?
-    var showingSettings: Bool = false
     var showingDashboard: Bool = false
     var searchText: String = ""
+    var searchPresented: Bool = false
+    var previewVisible: Bool = false
+
+    /// Keeps the sparkles item in the menu bar for quick questions.
+    var showMenuBarExtra: Bool = UserDefaults.standard.object(forKey: "showMenuBarExtra") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showMenuBarExtra, forKey: "showMenuBarExtra") }
+    }
 
     var pkmRootPath: String = UserDefaults.standard.string(forKey: "pkmRootPath") ?? "" {
         didSet { UserDefaults.standard.set(pkmRootPath, forKey: "pkmRootPath") }
@@ -92,30 +98,45 @@ final class AppState {
 
     func selectFile(_ url: URL) {
         activeItem = SelectedItem(url: url)
-        showingSettings = false
         showingDashboard = false
     }
 
     /// Opens the chat that searches every indexed file.
     func askLibrary() {
         guard let root = rootURL else {
-            showingSettings = true
+            showNotification("Choose a library folder in Settings first.", type: .error)
+            openSettings()
             return
         }
         activeItem = SelectedItem.library(root: root)
-        showingSettings = false
         showingDashboard = false
     }
 
     func showHome() {
         activeItem = nil
-        showingSettings = false
         showingDashboard = false
     }
 
     func showDashboard() {
         showingDashboard = true
-        showingSettings = false
+    }
+
+    /// Opens the native Settings window by performing the app menu's own Settings item (⌘,),
+    /// which works whatever selector the current OS wires it to.
+    func openSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        let appMenu = NSApp.mainMenu?.items.first?.submenu
+        if let item = appMenu?.items.first(where: { $0.keyEquivalent == "," }), let action = item.action {
+            NSApp.sendAction(action, to: item.target, from: item)
+        } else if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        }
+    }
+
+    /// Indexes the current file or folder again, or the whole library from the library chat.
+    func reindexCurrentItem() {
+        guard let item = activeItem else { return }
+        Task { await DocumentIndexer.shared.index(item.url) }
     }
 
     func updateStats() {

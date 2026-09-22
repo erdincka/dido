@@ -25,8 +25,11 @@ with an LLM. Not an HPE project: keep the native macOS look and feel, not HPE br
   without Screen Recording permission:
   `Dido.app/Contents/MacOS/Dido -DidoScreenshot out.png -DidoAppearance dark -DidoOpen /file -DidoAsk "question" -DidoScreenshotDelay 30`
   Other flags: `-DidoOpen library`, `-DidoSearch text`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`,
-  `-DidoOpenFirstSource YES`. When the screen is locked the hook falls back to rendering the view
-  hierarchy, which omits sidebar vibrancy. Launch-argument overrides such as
+  `-DidoOpenFirstSource YES`, `-DidoQuickAsk "question"` (menu bar path, headless),
+  `-DidoDebugLog /path.log` (step log from the hook and the quick-ask model). Launch with
+  `open -n Dido.app --args …`, not by executing the binary: after the Mac sleeps, a shell's launch
+  context goes stale and SwiftUI opens no windows. When the screen is locked the hook falls back to
+  rendering the view hierarchy, which omits sidebar vibrancy and can be stale. Launch-argument overrides such as
   `-pkmRootPath /folder -selectedModel name -answerSource server` are not persisted, but test
   chats and indexed files do land in the real store and must be removed afterwards.
 
@@ -41,6 +44,7 @@ with an LLM. Not an HPE project: keep the native macOS look and feel, not HPE br
 - **Dependencies:** a Markdown rendering package is allowed. Ask before adding anything else.
 - **Library scope:** the whole-library chat relies on the background index and never indexes on demand.
 - **Retrieval:** top-k vector search with citations; a scope smaller than the model's context budget is sent whole, in order.
+- **Settings** is a native Settings scene; open it with `SettingsLink` in views or `AppState.openSettings()` elsewhere, which performs the app menu's own ⌘, item because the selector differs between OS versions.
 - **Apple Intelligence** is the default answer source when available; the on-device model has a small context window, so its budget is kept around 7,000 characters.
 
 See `PLAN.md` for the roadmap and what is done.

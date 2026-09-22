@@ -30,6 +30,10 @@ Personal, non-commercial use only. Not an HPE product.
 - Sends page images to vision-capable server models for PDFs and images.
 - Renders replies as Markdown; copy or delete any message; chat history is kept per file, folder
   or library, capped at 200 messages each.
+- Lives in the menu bar too: the sparkles item asks the whole library from anywhere and keeps the
+  exchange in the library chat. Turn it off in Settings › General.
+- Keyboard: ⌘, Settings · ⇧⌘H Home · ⇧⌘L Ask the whole library · ⌘F Search · ⌥⌘P Toggle preview ·
+  ⌘R Index current item again · ⇧⌘I Index dashboard · ⌘. Stop generating.
 
 Indexed text and embeddings live in a SwiftData store under `~/Library/Application Support/Dido`.
 
@@ -54,7 +58,12 @@ Select the Dido scheme and run. From the command line:
 xcodebuild -project Dido.xcodeproj -scheme Dido -configuration Release build CODE_SIGNING_ALLOWED=NO
 ```
 
-The app is not sandboxed and not signed; it is meant to be built and run locally.
+The app is not sandboxed and not signed; it is meant to be built and run locally. To produce a
+DMG of a Release build under `dist/`:
+
+```bash
+scripts/release.sh
+```
 
 ## Project layout
 

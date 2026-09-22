@@ -31,3 +31,4 @@ Dido.xcodeproj
 
 # Release artefacts
 *.dmg
+dist/
