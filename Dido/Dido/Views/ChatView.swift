@@ -190,6 +190,17 @@ struct ChatView: View {
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "DidoOpenFirstSource"), let first = reply.sources.first {
                 openSource(first)
+                if let nth = AppState.shared.debugThenOpenSource, reply.sources.count >= nth {
+                    AppState.shared.debugThenOpenSource = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { openSource(reply.sources[nth - 1]) }
+                }
+            }
+            if let followUp = AppState.shared.debugFollowUpQuestion {
+                AppState.shared.debugFollowUpQuestion = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    draft = followUp
+                    send()
+                }
             }
             #endif
         }

@@ -106,7 +106,7 @@ struct AppleAnswerProvider: AnswerProvider {
                     var fullPrompt = ""
                     let recent = Self.trimmedHistory(history)
                     if !recent.isEmpty {
-                        fullPrompt += "Earlier in this conversation:\n"
+                        fullPrompt += "Earlier turns, for reference only (do not summarise them):\n"
                         for turn in recent {
                             fullPrompt += "\(turn.role == .user ? "User" : "Assistant"): \(turn.text)\n"
                         }

@@ -41,6 +41,8 @@ final class LLMService {
     - If the passages do not contain the answer, say so plainly and name what is missing. Do not speculate.
     - If passages disagree, say which document says what.
     - Answer in the language of the question. Lead with the answer, then the supporting detail. Use Markdown lists, tables and headings only when they make the answer clearer.
+    - Answer only the latest question. Earlier turns are context, not material to summarise again.
+    - Be concise. No introductions, recaps, closing summaries or "Conclusion" sections.
     """
 
     /// Prompts shipped by earlier versions; a stored copy of one is replaced by the current default.
@@ -164,7 +166,7 @@ final class LLMService {
     func streamAnswer(question: String, history: [ChatMessage], context: RetrievedContext) -> AsyncThrowingStream<String, Error> {
         let provider = makeAnswerProvider()
         let turns = history.suffix(20).map { ChatTurn(role: $0.role, text: $0.content) }
-        let prompt = "Context (numbered passages; cite as [n]):\n\(context.text)\n\nQuestion:\n\(question)"
+        let prompt = "Context (numbered passages; cite as [n]):\n\(context.text)\n\nQuestion:\n\(question)\n\nAnswer this question directly and concisely, citing passages. Do not add an introduction, a recap of earlier answers or a conclusion."
         return provider.stream(system: systemPrompt, history: turns, prompt: prompt, images: context.images)
     }
 }

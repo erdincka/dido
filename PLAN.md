@@ -49,13 +49,56 @@ Fix what is broken before adding anything.
 - [x] Keyboard shortcuts and a menu bar quick-ask window.
 - [x] `MARKETING_VERSION` in `project.yml`; a release build script.
 
-## Later
+## Recommended next steps (2026-09-23)
 
-Ideas not yet scheduled.
+Ordered by expected value for a personal knowledge-scan tool. None is started.
+
+### Retrieval quality
+- [ ] Rewrite follow-up questions into standalone queries using the recent turns before searching,
+      so "and what was the restore time?" retrieves as well as the first question did.
+- [ ] Hybrid retrieval: a SQLite FTS5 full-text index beside the vectors, merged by reciprocal rank,
+      so exact names, codes and numbers are never missed by the embedding.
+- [ ] Merge adjacent passages from the same file before sending them, and dedupe near-identical ones,
+      so ten citations from one document become two or three coherent extracts.
+- [ ] Metadata boosts and filters: recently modified files first, restrict to a folder or file type,
+      exclude patterns (a `.didoignore` file or Settings list).
+- [ ] Row-aware chunking for CSV and XLSX, keeping the header row with every chunk.
+- [ ] Force citations from Apple Intelligence with guided generation (a `@Generable` answer with a
+      citation list) instead of relying on the model writing `[n]`.
+
+### Scale and performance
+- [ ] Persist the vector index as a compact binary file loaded with mmap, instead of rebuilding it
+      from SwiftData at launch (about 3 to 6 seconds for 18,000 passages today).
+- [ ] Approximate nearest-neighbour search (HNSW) once libraries pass roughly 100,000 passages.
+- [ ] Priority queue for the indexer so the open file and folder are indexed before the background
+      scan continues; cap OCR pages and skip files above a size limit with a clear status.
+- [ ] Notify (menu bar badge or system notification) when a background scan finishes or fails.
+
+### Chat and answers
+- [ ] Regenerate, edit-and-resend, and pin or rename threads.
+- [ ] Export an answer with its sources as Markdown, and copy with citations resolved to file names.
+- [ ] A "compare documents" mode that answers per file and shows a table of differences.
+- [ ] Streaming for the on-device model with token deltas rather than cumulative snapshots.
+
+### Preview and library
+- [ ] Highlight the cited range inside rendered Markdown, not only the raw text.
+- [ ] Page thumbnails and a mini-map for long PDFs; jump between all cited ranges in a document.
+- [ ] Pin favourite folders and show file modification dates in the sidebar.
+
+### Robustness and product
+- [ ] An evaluation harness: a folder of sample documents with questions and expected answers, run
+      through the debug launch flags after each change, with retrieval hit rate and answer checks.
+- [ ] Unit tests for the chunker, offsets, citation parsing and the vector index (currently no test
+      target by decision; revisit once the retrieval code settles).
+- [ ] First-launch onboarding: choose the folder, check Apple Intelligence, pick a server if needed.
+- [ ] Signing, notarisation and Sparkle updates if the app is shared beyond this Mac.
+- [ ] Per-tab sizing of the Settings window; keyboard navigation of sources and passages.
+- [ ] Encrypt the store or place it in a user-chosen location for sensitive libraries.
+
+## Later (earlier notes, kept)
 
 - [x] Highlight the exact cited range in text files and PDF pages (2026-09-23).
 - [ ] Per-tab sizing of the Settings window.
 - [ ] Signing and notarisation, if the app is ever shared beyond this Mac.
 - [x] A "why this answer" view showing the retrieved passages and their scores (2026-09-23).
-- [ ] Highlight the cited range inside *rendered* Markdown, not only the raw text.
 - [ ] Show the on-device index load time in the dashboard for large libraries.

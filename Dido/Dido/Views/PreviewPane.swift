@@ -12,6 +12,7 @@ struct PreviewPane: View {
 
     @State private var mode: Mode = .document
     @State private var passages: [Passage] = []
+    @State private var lastLoadedPath: String?
 
     private var target: URL { citation?.url ?? item.url }
 
@@ -41,7 +42,10 @@ struct PreviewPane: View {
         }
         .task(id: citation) {
             mode = citation == nil || AppState.shared.debugPreviewMode == "document" ? .document : .passage
-            passages = await DocumentIndexer.shared.passages(for: target)
+            if passages.isEmpty || target.path != lastLoadedPath {
+                passages = await DocumentIndexer.shared.passages(for: target)
+                lastLoadedPath = target.path
+            }
         }
     }
 }
@@ -71,8 +75,15 @@ struct PassageView: View {
                 }
                 .padding(12)
             }
-            .onChange(of: passages.count) { _, _ in proxy.scrollTo(highlighted, anchor: .center) }
-            .onAppear { proxy.scrollTo(highlighted, anchor: .center) }
+            .onChange(of: passages.count) { _, _ in scroll(proxy) }
+            .onChange(of: highlighted) { _, _ in scroll(proxy) }
+            .onAppear { scroll(proxy) }
+        }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(highlighted, anchor: .center) }
         }
     }
 }
@@ -144,7 +155,9 @@ struct HighlightedTextView: View {
                 .padding(16)
             }
             .onAppear { proxy.scrollTo("cited", anchor: .center) }
-            .onChange(of: passage) { _, _ in proxy.scrollTo("cited", anchor: .center) }
+            .onChange(of: passage) { _, _ in
+                DispatchQueue.main.async { withAnimation { proxy.scrollTo("cited", anchor: .center) } }
+            }
         }
     }
 
