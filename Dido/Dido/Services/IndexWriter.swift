@@ -20,6 +20,14 @@ struct IndexedChunk: Sendable {
     let vector: [Float]
 }
 
+/// A stored chunk with its offsets.
+struct Passage: Sendable, Hashable {
+    let ordinal: Int
+    let text: String
+    let start: Int
+    let end: Int
+}
+
 /// What the indexer needs to know about a previously indexed file.
 struct ExistingDocument: Sendable {
     let id: PersistentIdentifier
@@ -62,6 +70,40 @@ actor IndexWriter {
     func textChunks(for path: String) -> [String] {
         guard let document = fetchDocument(path) else { return [] }
         return document.chunks.sorted { $0.ordinal < $1.ordinal }.map(\.text)
+    }
+
+    /// Chunks with offsets for the preview pane.
+    func passages(for path: String) -> [Passage] {
+        guard let document = fetchDocument(path) else { return [] }
+        return document.chunks.sorted { $0.ordinal < $1.ordinal }.map { Passage(ordinal: $0.ordinal, text: $0.text, start: $0.startOffset, end: $0.endOffset) }
+    }
+
+    func remove(path: String) throws {
+        for document in (try? modelContext.fetch(FetchDescriptor<Document>(predicate: #Predicate { $0.path == path }))) ?? [] {
+            modelContext.delete(document)
+        }
+        try modelContext.save()
+    }
+
+    /// Removes every document at or below a folder path.
+    func remove(pathPrefix: String) throws {
+        let prefix = pathPrefix.hasSuffix("/") ? pathPrefix : pathPrefix + "/"
+        for document in (try? modelContext.fetch(FetchDescriptor<Document>(predicate: #Predicate { $0.path.starts(with: prefix) }))) ?? [] {
+            modelContext.delete(document)
+        }
+        try modelContext.save()
+    }
+
+    func removeAll() throws {
+        try modelContext.delete(model: DocumentChunk.self)
+        try modelContext.delete(model: Document.self)
+        try modelContext.save()
+    }
+
+    /// Paths of indexed files that no longer exist on disk.
+    func missingPaths() -> [String] {
+        let documents = (try? modelContext.fetch(FetchDescriptor<Document>())) ?? []
+        return documents.map(\.path).filter { !FileManager.default.fileExists(atPath: $0) }
     }
 
     /// Every embedded chunk produced with `model`, for loading the vector index at launch.

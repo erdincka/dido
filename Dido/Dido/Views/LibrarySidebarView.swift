@@ -7,6 +7,7 @@ struct LibrarySidebarView: View {
 
     @State private var rootChildren: [FileItem] = []
     @State private var searchResults: [FileItem] = []
+    @State private var passageResults: [IndexEntry] = []
     @State private var isLoadingRoot = false
     @State private var rootError: String?
 
@@ -17,10 +18,23 @@ struct LibrarySidebarView: View {
                     Label("Home", systemImage: "sparkles")
                 }
                 .buttonStyle(.plain)
+                Button { appState.askLibrary() } label: {
+                    Label("Ask the whole library", systemImage: "books.vertical")
+                }
+                .buttonStyle(.plain)
+                .background(RoundedRectangle(cornerRadius: 5).fill(appState.activeItem?.isLibrary == true && !appState.showingSettings ? Color.accentColor.opacity(0.15) : .clear))
             }
 
             Section("Library") {
                 libraryRows
+            }
+
+            if !appState.searchText.isEmpty && !passageResults.isEmpty {
+                Section("Passages") {
+                    ForEach(passageResults, id: \.chunkID) { entry in
+                        PassageResultRow(entry: entry, query: appState.searchText)
+                    }
+                }
             }
 
             if !chatStore.recentThreads.isEmpty {
@@ -32,7 +46,7 @@ struct LibrarySidebarView: View {
             }
         }
         .navigationTitle("Dido")
-        .searchable(text: $appState.searchText, placement: .sidebar, prompt: "Search file names…")
+        .searchable(text: $appState.searchText, placement: .sidebar, prompt: "Search names and contents…")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { appState.showingSettings = true } label: {
@@ -98,11 +112,21 @@ struct LibrarySidebarView: View {
         let query = appState.searchText
         guard !query.isEmpty, let root = appState.rootURL else {
             searchResults = []
+            passageResults = []
             return
         }
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled else { return }
         searchResults = await FileSystemScanner.shared.search(query, under: root)
+        var passages = await VectorIndex.shared.textSearch(query, limit: 12)
+        if query.count >= 8, let vector = try? await LLMService.shared.makeEmbeddingProvider().embed([query]).first {
+            let semantic = await VectorIndex.shared.search(query: vector, scope: .all, limit: 6, minimumScore: 0.2, keywords: [])
+            for hit in semantic where !passages.contains(where: { $0.chunkID == hit.entry.chunkID }) {
+                passages.append(hit.entry)
+            }
+        }
+        guard !Task.isCancelled else { return }
+        passageResults = passages
     }
 }
 
@@ -190,11 +214,12 @@ struct RecentThreadRow: View {
     var body: some View {
         HStack {
             Button {
-                appState.activeItem = SelectedItem(url: URL(fileURLWithPath: thread.path), name: thread.name, isDirectory: thread.isDirectory)
+                appState.activeItem = thread.item
                 appState.showingSettings = false
+                appState.showingDashboard = false
             } label: {
                 HStack {
-                    Image(systemName: thread.isDirectory ? "folder" : "bubble.left.and.bubble.right").foregroundStyle(.secondary)
+                    Image(systemName: thread.isLibrary ? "books.vertical" : (thread.isDirectory ? "folder" : "bubble.left.and.bubble.right")).foregroundStyle(.secondary)
                     Text(thread.name).lineLimit(1)
                     Spacer()
                 }
@@ -213,5 +238,38 @@ struct RecentThreadRow: View {
         .contextMenu {
             Button("Delete chat") { withAnimation { chatStore.delete(thread) } }
         }
+    }
+}
+
+/// A content-search hit: file name plus a snippet around the match. Opens the file with the passage previewed.
+struct PassageResultRow: View {
+    let entry: IndexEntry
+    let query: String
+
+    private let appState = AppState.shared
+
+    var body: some View {
+        Button {
+            appState.pendingCitation = Citation(index: 0, path: entry.path, filename: entry.filename, ordinal: entry.ordinal, start: entry.start, end: entry.end, score: 0)
+            appState.selectFile(URL(fileURLWithPath: entry.path))
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.filename).lineLimit(1)
+                Text(snippet)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var snippet: String {
+        let text = entry.text.replacingOccurrences(of: "\n", with: " ")
+        guard let range = text.range(of: query, options: .caseInsensitive) else { return String(text.prefix(140)) }
+        let start = text.index(range.lowerBound, offsetBy: -50, limitedBy: text.startIndex) ?? text.startIndex
+        let end = text.index(range.upperBound, offsetBy: 90, limitedBy: text.endIndex) ?? text.endIndex
+        return (start > text.startIndex ? "…" : "") + text[start..<end] + (end < text.endIndex ? "…" : "")
     }
 }

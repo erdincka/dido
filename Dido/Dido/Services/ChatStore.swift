@@ -76,10 +76,11 @@ final class ChatStore {
     private func thread(for item: SelectedItem, createIfNeeded: Bool) -> ChatThread? {
         guard let context else { return nil }
         let path = item.url.path
-        let descriptor = FetchDescriptor<ChatThread>(predicate: #Predicate { $0.path == path })
+        let isLibrary = item.isLibrary
+        let descriptor = FetchDescriptor<ChatThread>(predicate: #Predicate { $0.path == path && $0.isLibrary == isLibrary })
         if let existing = (try? context.fetch(descriptor))?.first { return existing }
         guard createIfNeeded else { return nil }
-        let thread = ChatThread(path: path, name: item.name, isDirectory: item.isDirectory)
+        let thread = ChatThread(path: path, name: item.name, kind: item.kind)
         context.insert(thread)
         return thread
     }
@@ -108,7 +109,7 @@ final class ChatStore {
 
         var imported = 0
         for item in items where !item.messages.isEmpty {
-            let thread = ChatThread(path: item.url.path, name: item.name, isDirectory: item.isDirectory)
+            let thread = ChatThread(path: item.url.path, name: item.name, kind: item.isDirectory ? .folder : .file)
             context.insert(thread)
             let base = Date().addingTimeInterval(-Double(item.messages.count))
             for (offset, message) in item.messages.suffix(Self.maxMessagesPerThread).enumerated() {

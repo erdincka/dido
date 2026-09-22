@@ -24,7 +24,11 @@ with an LLM. Not an HPE project: keep the native macOS look and feel, not HPE br
 - No test target. Verify by building and running the app. A Debug build captures its own window
   without Screen Recording permission:
   `Dido.app/Contents/MacOS/Dido -DidoScreenshot out.png -DidoAppearance dark -DidoOpen /file -DidoAsk "question" -DidoScreenshotDelay 30`
-  Launch-argument overrides such as `-pkmRootPath /folder -selectedModel name` are not persisted.
+  Other flags: `-DidoOpen library`, `-DidoSearch text`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`,
+  `-DidoOpenFirstSource YES`. When the screen is locked the hook falls back to rendering the view
+  hierarchy, which omits sidebar vibrancy. Launch-argument overrides such as
+  `-pkmRootPath /folder -selectedModel name -answerSource server` are not persisted, but test
+  chats and indexed files do land in the real store and must be removed afterwards.
 
 ## Decisions (2026-09-22)
 
@@ -35,6 +39,7 @@ with an LLM. Not an HPE project: keep the native macOS look and feel, not HPE br
 - **Formats:** md, txt and code, pdf, rtf stay native. docx, pptx, xlsx and epub go through
   `markitdown` via `uvx`, located on PATH with a configurable override.
 - **Dependencies:** a Markdown rendering package is allowed. Ask before adding anything else.
+- **Library scope:** the whole-library chat relies on the background index and never indexes on demand.
 - **Retrieval:** top-k vector search with citations; a scope smaller than the model's context budget is sent whole, in order.
 - **Apple Intelligence** is the default answer source when available; the on-device model has a small context window, so its budget is kept around 7,000 characters.
 

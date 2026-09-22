@@ -11,6 +11,8 @@ struct ChatView: View {
     @State private var streamingText = ""
     @State private var generation: Task<Void, Never>?
     @State private var previewURL: URL?
+    @State private var showPreview = false
+    @State private var previewCitation: Citation?
 
     private let chatStore = ChatStore.shared
     private let llm = LLMService.shared
@@ -20,7 +22,7 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatHeaderView(item: selectedItem, previewURL: $previewURL)
+            ChatHeaderView(item: selectedItem, previewURL: $previewURL, showPreview: $showPreview)
             Divider()
             transcript
             Divider()
@@ -33,8 +35,16 @@ struct ChatView: View {
             )
         }
         .quickLookPreview($previewURL)
+        .inspector(isPresented: $showPreview) {
+            PreviewPane(item: selectedItem, citation: previewCitation)
+                .inspectorColumnWidth(min: 320, ideal: 420, max: 720)
+        }
         .task(id: selectedItem.id) {
             messages = chatStore.messages(for: selectedItem)
+            if let citation = AppState.shared.pendingCitation {
+                AppState.shared.pendingCitation = nil
+                openSource(citation)
+            }
             if let question = AppState.shared.pendingQuestion {
                 AppState.shared.pendingQuestion = nil
                 draft = question
@@ -58,7 +68,7 @@ struct ChatView: View {
                             message: message,
                             onCopy: { copy(message) },
                             onDelete: { delete(message) },
-                            onOpenSource: { previewURL = $0.url }
+                            onOpenSource: { openSource($0) }
                         )
                         .id(message.id)
                     }
@@ -76,11 +86,14 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            if isGenerating {
-                proxy.scrollTo("streaming", anchor: .bottom)
-            } else if let last = messages.last {
-                proxy.scrollTo(last.id, anchor: .bottom)
+        // The lazy stack lays out a new row a moment after it is inserted, so scroll on the next turn of the run loop.
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if isGenerating {
+                    proxy.scrollTo("streaming", anchor: .bottom)
+                } else if let last = messages.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
             }
         }
     }
@@ -137,6 +150,12 @@ struct ChatView: View {
         generation?.cancel()
     }
 
+    /// Shows a cited passage in the preview pane, in context of its neighbours.
+    private func openSource(_ citation: Citation) {
+        previewCitation = citation
+        showPreview = true
+    }
+
     /// The [n] markers the model actually used, including lists such as [2, 5], so the sources row matches the answer.
     private static func citedIndexes(in text: String) -> Set<Int> {
         guard let regex = try? NSRegularExpression(pattern: #"\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\]"#) else { return [] }
@@ -166,6 +185,11 @@ struct ChatView: View {
                 messages.append(reply)
             }
             chatStore.append(reply, to: selectedItem)
+            #if DEBUG
+            if UserDefaults.standard.bool(forKey: "DidoOpenFirstSource"), let first = reply.sources.first {
+                openSource(first)
+            }
+            #endif
         }
         streamingText = ""
         generation = nil

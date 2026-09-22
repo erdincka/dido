@@ -30,18 +30,18 @@ Fix what is broken before adding anything.
 - [x] Real retrieval: in-memory vector index built from SwiftData at launch, batch cosine via
       Accelerate, top-k with a score threshold, plus keyword boosting.
 - [x] Citations: chunks carry path and offsets; answers cite `[n]`; a sources list opens the file.
-- [ ] Open a cited passage at its offset in the preview pane (needs the Phase 3 preview).
+- [x] Open a cited passage at its offset in the preview pane (needs the Phase 3 preview).
 
-## Phase 3: Knowledge scan
+## Phase 3: Knowledge scan (done 2026-09-22)
 
-- [ ] Ask across the whole library, a folder, or a single file.
-- [ ] Background index of the root at launch and a file-system watcher for incremental updates.
-- [ ] Index dashboard: per-file status with reasons, reindex, clear.
-- [ ] Robust `markitdown`: find `uvx` on PATH or a configured path, warm it once, time out, and
+- [x] Ask across the whole library, a folder, or a single file.
+- [x] Background index of the root at launch and a file-system watcher for incremental updates.
+- [x] Index dashboard: per-file status with reasons, reindex, clear.
+- [x] Robust `markitdown`: find `uvx` on PATH or a configured path, warm it once, time out, and
       report a clear error when missing.
-- [ ] OCR for scanned PDFs and images with the Vision framework.
-- [ ] Preview pane beside the chat: Markdown, PDF and Quick Look.
-- [ ] Content search in the sidebar, not just file names.
+- [x] OCR for scanned PDFs and images with the Vision framework.
+- [x] Preview pane beside the chat: Markdown, PDF and Quick Look.
+- [x] Content search in the sidebar, not just file names.
 
 ## Phase 4: Polish
 

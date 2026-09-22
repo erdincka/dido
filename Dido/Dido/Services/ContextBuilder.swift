@@ -13,7 +13,7 @@ struct RetrievedContext: Sendable {
 /// Finds the passages most relevant to a question within the selected file or folder.
 /// Small scopes are sent whole; larger ones go through vector search with a keyword boost.
 struct ContextBuilder: Sendable {
-    var topK = 8
+    var topK = 10
     var minimumScore: Float = 0.1
 
     private static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "webp", "gif"]
@@ -22,10 +22,13 @@ struct ContextBuilder: Sendable {
     func build(for item: SelectedItem, question: String, budget: Int, includeImages: Bool) async -> RetrievedContext {
         let indexer = DocumentIndexer.shared
         let embedding = await LLMService.shared.makeEmbeddingProvider()
+        await indexer.ensureVectorIndexLoaded()
         await ensureIndexed(item, indexer: indexer, model: embedding.identifier)
 
-        let scope: SearchScope = item.isDirectory ? .folder(item.url.path) : .file(item.url.path)
+        let scope = item.searchScope
         var passages = await VectorIndex.shared.entries(in: scope)
+        let indexed = await VectorIndex.shared.count
+        logger.notice("Scope \(item.name): \(passages.count) passages in scope, \(indexed) in index")
         let total = passages.reduce(0) { $0 + $1.text.count }
 
         if passages.isEmpty {
@@ -56,14 +59,22 @@ struct ContextBuilder: Sendable {
             }
         }
 
-        let header = item.isDirectory ? "[Folder: \(item.name)]" : "[File: \(item.name)]"
-        let text = lines.isEmpty ? "\(header)\n(No text could be extracted.)" : "\(header)\n\n" + lines.joined(separator: "\n\n")
-        logger.info("Context for \(item.name): \(citations.count) passages, \(used) characters, \(images.count) images")
+        let header: String
+        switch item.kind {
+        case .file: header = "[File: \(item.name)]"
+        case .folder: header = "[Folder: \(item.name)]"
+        case .library: header = "[Whole library]"
+        }
+        let empty = item.isLibrary ? "(Nothing is indexed yet. Index the library from Settings or wait for the background scan.)" : "(No text could be extracted.)"
+        let text = lines.isEmpty ? "\(header)\n\(empty)" : "\(header)\n\n" + lines.joined(separator: "\n\n")
+        logger.notice("Context for \(item.name): \(citations.count) passages, \(used) characters, \(images.count) images")
         return RetrievedContext(text: text, citations: citations, images: images)
     }
 
     private func ensureIndexed(_ item: SelectedItem, indexer: DocumentIndexer, model: String) async {
-        if item.isDirectory {
+        if item.isLibrary {
+            return // the background indexer keeps the whole library current
+        } else if item.isDirectory {
             let children = (try? await FileSystemScanner.shared.children(of: item.url)) ?? []
             for child in children where !child.isDirectory && DocumentParser.supportedExtensions.contains(child.url.pathExtension.lowercased()) {
                 if await !indexer.isCurrent(url: child.url, embeddingModel: model) {
@@ -94,7 +105,9 @@ struct ContextBuilder: Sendable {
     /// Text chunks without vectors, for files whose embeddings failed.
     private func fallbackEntries(for item: SelectedItem, indexer: DocumentIndexer) async -> [IndexEntry] {
         var urls: [URL] = []
-        if item.isDirectory {
+        if item.isLibrary {
+            return []
+        } else if item.isDirectory {
             let children = (try? await FileSystemScanner.shared.children(of: item.url)) ?? []
             urls = children.filter { !$0.isDirectory }.map(\.url)
         } else {

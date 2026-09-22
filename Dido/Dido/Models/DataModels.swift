@@ -89,19 +89,25 @@ final class ChatThread {
     var path: String
     var name: String
     var isDirectory: Bool
+    var isLibrary: Bool = false
     var createdAt: Date
     var updatedAt: Date
 
     @Relationship(deleteRule: .cascade, inverse: \ChatMessageRecord.thread)
     var messages: [ChatMessageRecord] = []
 
-    init(path: String, name: String, isDirectory: Bool) {
+    init(path: String, name: String, kind: SelectedItem.Kind) {
         self.id = UUID()
         self.path = path
         self.name = name
-        self.isDirectory = isDirectory
+        self.isDirectory = kind != .file
+        self.isLibrary = kind == .library
         self.createdAt = Date()
         self.updatedAt = Date()
+    }
+
+    var item: SelectedItem {
+        SelectedItem(url: URL(fileURLWithPath: path), name: name, kind: isLibrary ? .library : (isDirectory ? .folder : .file))
     }
 }
 

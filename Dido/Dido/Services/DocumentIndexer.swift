@@ -39,6 +39,7 @@ actor DocumentIndexer {
     private let logger = Logger(subsystem: "com.dido", category: "Indexer")
     private var writer: IndexWriter?
     private var currentRun: Task<Void, Never>?
+    private var indexLoaded = false
     private let embeddingBatchSize = 16
 
     private init() {}
@@ -68,6 +69,10 @@ actor DocumentIndexer {
         await indexWriter()?.textChunks(for: url.path) ?? []
     }
 
+    func passages(for url: URL) async -> [Passage] {
+        await indexWriter()?.passages(for: url.path) ?? []
+    }
+
     /// Loads every chunk embedded with the current model into the in-memory vector index.
     func loadVectorIndex() async {
         let provider = await LLMService.shared.makeEmbeddingProvider()
@@ -75,7 +80,72 @@ actor DocumentIndexer {
         let entries = await writer.entries(forModel: provider.identifier)
         await VectorIndex.shared.replaceAll(entries, model: provider.identifier)
         await IndexProgress.shared.setVectorCount(entries.count)
-        logger.info("Vector index loaded: \(entries.count) chunks for \(provider.identifier)")
+        indexLoaded = true
+        logger.notice("Vector index loaded: \(entries.count) chunks for \(provider.identifier)")
+    }
+
+    /// Loads the index once, so a question asked right after launch still sees every passage.
+    func ensureVectorIndexLoaded() async {
+        if !indexLoaded {
+            await loadVectorIndex()
+        }
+    }
+
+    // MARK: - Maintenance
+
+    func remove(path: String) async {
+        try? await indexWriter()?.remove(path: path)
+        await VectorIndex.shared.remove(path: path)
+        await refreshCounts()
+    }
+
+    func remove(pathPrefix: String) async {
+        try? await indexWriter()?.remove(pathPrefix: pathPrefix)
+        await VectorIndex.shared.remove(pathPrefix: pathPrefix)
+        await refreshCounts()
+    }
+
+    func removeAll() async {
+        cancel()
+        try? await indexWriter()?.removeAll()
+        await VectorIndex.shared.removeAll()
+        await refreshCounts()
+    }
+
+    /// Drops index entries for files that were deleted outside the app. Returns how many were removed.
+    func removeMissing() async -> Int {
+        guard let writer = await indexWriter() else { return 0 }
+        let missing = await writer.missingPaths()
+        for path in missing {
+            try? await writer.remove(path: path)
+            await VectorIndex.shared.remove(path: path)
+        }
+        await refreshCounts()
+        return missing.count
+    }
+
+    /// Applies file-system changes reported by the watcher: reindex what exists, drop what is gone.
+    func applyChanges(paths: [String]) async {
+        guard let writer = await indexWriter() else { return }
+        for path in paths {
+            let url = URL(fileURLWithPath: path)
+            if url.pathComponents.contains(where: { $0.hasPrefix(".") }) { continue }
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) {
+                if isDirectory.boolValue || DocumentParser.supportedExtensions.contains(url.pathExtension.lowercased()) {
+                    await index(url, quiet: true)
+                }
+            } else if await writer.existingDocument(at: path) != nil {
+                await remove(path: path)
+            } else {
+                await remove(pathPrefix: path)
+            }
+        }
+    }
+
+    private func refreshCounts() async {
+        await IndexProgress.shared.setVectorCount(VectorIndex.shared.count)
+        await AppState.shared.updateStats()
     }
 
     // MARK: - Runs
@@ -102,8 +172,10 @@ actor DocumentIndexer {
             return
         }
         let chunker = await IndexSettings.shared.chunker
+        let parserOptions = await IndexSettings.shared.parserOptions
         let provider = await LLMService.shared.makeEmbeddingProvider()
-        if await VectorIndex.shared.modelIdentifier != provider.identifier {
+        let loadedModel = await VectorIndex.shared.modelIdentifier
+        if !indexLoaded || loadedModel != provider.identifier {
             await loadVectorIndex()
         }
         let name = url.lastPathComponent
@@ -119,7 +191,7 @@ actor DocumentIndexer {
         for file in files {
             if Task.isCancelled { break }
             await IndexProgress.shared.advance(to: file.lastPathComponent)
-            if await indexFile(file, writer: writer, chunker: chunker, provider: provider, embeddingsAvailable: &embeddingsAvailable) {
+            if await indexFile(file, writer: writer, chunker: chunker, parserOptions: parserOptions, provider: provider, embeddingsAvailable: &embeddingsAvailable) {
                 stored += 1
             }
             await IndexProgress.shared.fileDone()
@@ -139,7 +211,7 @@ actor DocumentIndexer {
     }
 
     /// Returns true when the file's text was stored.
-    private func indexFile(_ url: URL, writer: IndexWriter, chunker: TextChunker, provider: any EmbeddingProvider, embeddingsAvailable: inout Bool) async -> Bool {
+    private func indexFile(_ url: URL, writer: IndexWriter, chunker: TextChunker, parserOptions: ParserOptions, provider: any EmbeddingProvider, embeddingsAvailable: inout Bool) async -> Bool {
         let path = url.path
         let ext = url.pathExtension.lowercased()
         let filename = url.lastPathComponent
@@ -162,7 +234,7 @@ actor DocumentIndexer {
 
         let text: String
         do {
-            text = try await DocumentParser.shared.text(of: url)
+            text = try await DocumentParser.shared.text(of: url, options: parserOptions)
         } catch {
             logger.error("Parse failed for \(path): \(error.localizedDescription)")
             await record(.parseFailed, detail: error.localizedDescription)

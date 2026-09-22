@@ -13,7 +13,10 @@ final class AppState {
     var activeItem: SelectedItem?
     /// A question to send as soon as the chat for `activeItem` appears (used by the debug launch flags).
     var pendingQuestion: String?
+    /// A passage to show in the preview pane as soon as the chat for `activeItem` appears.
+    var pendingCitation: Citation?
     var showingSettings: Bool = false
+    var showingDashboard: Bool = false
     var searchText: String = ""
 
     var pkmRootPath: String = UserDefaults.standard.string(forKey: "pkmRootPath") ?? "" {
@@ -90,10 +93,28 @@ final class AppState {
     func selectFile(_ url: URL) {
         activeItem = SelectedItem(url: url)
         showingSettings = false
+        showingDashboard = false
+    }
+
+    /// Opens the chat that searches every indexed file.
+    func askLibrary() {
+        guard let root = rootURL else {
+            showingSettings = true
+            return
+        }
+        activeItem = SelectedItem.library(root: root)
+        showingSettings = false
+        showingDashboard = false
     }
 
     func showHome() {
         activeItem = nil
+        showingSettings = false
+        showingDashboard = false
+    }
+
+    func showDashboard() {
+        showingDashboard = true
         showingSettings = false
     }
 

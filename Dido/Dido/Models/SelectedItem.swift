@@ -35,24 +35,43 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     }
 }
 
-/// The file or folder the user is currently talking about.
+/// The file, folder or whole library the user is currently talking about.
 struct SelectedItem: Identifiable, Hashable, Sendable {
+    enum Kind: String, Sendable {
+        case file, folder, library
+    }
+
     let url: URL
     let name: String
-    let isDirectory: Bool
+    let kind: Kind
 
-    /// Stable across launches: the path itself.
-    var id: String { url.path }
+    /// Stable across launches: the path, prefixed for the library so it never collides with the root folder.
+    var id: String { kind == .library ? "library:" + url.path : url.path }
+    var isDirectory: Bool { kind != .file }
+    var isLibrary: Bool { kind == .library }
+
+    var searchScope: SearchScope {
+        switch kind {
+        case .file: return .file(url.path)
+        case .folder: return .folder(url.path)
+        case .library: return .all
+        }
+    }
 
     init(url: URL) {
         self.url = url
         self.name = url.lastPathComponent
-        self.isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+        self.kind = isDirectory ? .folder : .file
     }
 
-    init(url: URL, name: String, isDirectory: Bool) {
+    init(url: URL, name: String, kind: Kind) {
         self.url = url
         self.name = name
-        self.isDirectory = isDirectory
+        self.kind = kind
+    }
+
+    static func library(root: URL) -> SelectedItem {
+        SelectedItem(url: root, name: "Whole library", kind: .library)
     }
 }

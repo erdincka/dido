@@ -60,6 +60,27 @@ actor VectorIndex {
         entries.removeAll { $0.path == path }
     }
 
+    func remove(pathPrefix: String) {
+        let prefix = pathPrefix.hasSuffix("/") ? pathPrefix : pathPrefix + "/"
+        entries.removeAll { $0.path.hasPrefix(prefix) }
+    }
+
+    func removeAll() {
+        entries.removeAll()
+    }
+
+    /// Case-insensitive substring search over passage text, for the sidebar.
+    func textSearch(_ query: String, limit: Int) -> [IndexEntry] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard needle.count >= 2 else { return [] }
+        var hits: [IndexEntry] = []
+        for entry in entries where entry.text.localizedCaseInsensitiveContains(needle) {
+            hits.append(entry)
+            if hits.count >= limit { break }
+        }
+        return hits
+    }
+
     /// All entries in a scope, in document order.
     func entries(in scope: SearchScope) -> [IndexEntry] {
         entries.filter { scope.contains($0.path) }.sorted { ($0.path, $0.ordinal) < ($1.path, $1.ordinal) }

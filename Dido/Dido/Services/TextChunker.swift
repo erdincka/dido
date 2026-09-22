@@ -12,11 +12,27 @@ final class IndexSettings {
     var chunkOverlap: Int = UserDefaults.standard.object(forKey: "chunkOverlap") as? Int ?? 80 {
         didSet { UserDefaults.standard.set(chunkOverlap, forKey: "chunkOverlap") }
     }
+    /// Index the whole library in the background at launch and keep it current with a file watcher.
+    var autoIndex: Bool = UserDefaults.standard.object(forKey: "autoIndex") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoIndex, forKey: "autoIndex") }
+    }
+    /// Recognise text in images and in PDFs that have no text layer.
+    var ocrEnabled: Bool = UserDefaults.standard.object(forKey: "ocrEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(ocrEnabled, forKey: "ocrEnabled") }
+    }
+    /// Optional path to `uvx` when it is not in one of the usual places.
+    var converterPath: String = UserDefaults.standard.string(forKey: "converterPath") ?? "" {
+        didSet { UserDefaults.standard.set(converterPath, forKey: "converterPath") }
+    }
 
     private init() {}
 
     var chunker: TextChunker {
         TextChunker(chunkSize: chunkSize, chunkOverlap: chunkOverlap)
+    }
+
+    var parserOptions: ParserOptions {
+        ParserOptions(ocrEnabled: ocrEnabled, converterPath: converterPath.isEmpty ? nil : converterPath)
     }
 }
 

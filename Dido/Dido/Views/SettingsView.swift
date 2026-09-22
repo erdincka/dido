@@ -12,6 +12,9 @@ struct SettingsView: View {
     @State private var systemPrompt: String
     @State private var chunkSize: Int
     @State private var chunkOverlap: Int
+    @State private var autoIndex: Bool
+    @State private var ocrEnabled: Bool
+    @State private var converterPath: String
     @State private var answerSource: AnswerSource?
     @State private var embeddingSource: EmbeddingSource
     @State private var embeddingModel: String
@@ -28,6 +31,9 @@ struct SettingsView: View {
         _systemPrompt = State(initialValue: llm.systemPrompt)
         _chunkSize = State(initialValue: index.chunkSize)
         _chunkOverlap = State(initialValue: index.chunkOverlap)
+        _autoIndex = State(initialValue: index.autoIndex)
+        _ocrEnabled = State(initialValue: index.ocrEnabled)
+        _converterPath = State(initialValue: index.converterPath)
         _answerSource = State(initialValue: llm.answerSourceChoice)
         _embeddingSource = State(initialValue: llm.embeddingSource)
         _embeddingModel = State(initialValue: llm.serverEmbeddingModel)
@@ -44,7 +50,10 @@ struct SettingsView: View {
                     rootPath: $rootPath,
                     rootBookmark: $rootBookmark,
                     chunkSize: $chunkSize,
-                    chunkOverlap: $chunkOverlap
+                    chunkOverlap: $chunkOverlap,
+                    autoIndex: $autoIndex,
+                    ocrEnabled: $ocrEnabled,
+                    converterPath: $converterPath
                 )
             }
             .formStyle(.grouped)
@@ -70,6 +79,10 @@ struct SettingsView: View {
         llm.systemPrompt = systemPrompt
         indexSettings.chunkSize = chunkSize
         indexSettings.chunkOverlap = chunkOverlap
+        let autoIndexChanged = indexSettings.autoIndex != autoIndex
+        indexSettings.autoIndex = autoIndex
+        indexSettings.ocrEnabled = ocrEnabled
+        indexSettings.converterPath = converterPath
         let embeddingChanged = llm.embeddingSource != embeddingSource || llm.serverEmbeddingModel != embeddingModel
         llm.answerSourceChoice = answerSource
         llm.embeddingSource = embeddingSource
@@ -80,6 +93,10 @@ struct SettingsView: View {
         appState.showNotification("Settings saved", type: .success)
         if embeddingChanged {
             Task { await DocumentIndexer.shared.loadVectorIndex() }
+        }
+        if autoIndexChanged {
+            LibraryMonitor.shared.deactivate()
+            LibraryMonitor.shared.activate(root: appState.activateRoot(), autoIndex: autoIndex)
         }
     }
 }
@@ -200,6 +217,9 @@ struct IndexSettingsSection: View {
     @Binding var rootBookmark: Data?
     @Binding var chunkSize: Int
     @Binding var chunkOverlap: Int
+    @Binding var autoIndex: Bool
+    @Binding var ocrEnabled: Bool
+    @Binding var converterPath: String
 
     private let appState = AppState.shared
     private let progress = IndexProgress.shared
@@ -215,6 +235,11 @@ struct IndexSettingsSection: View {
                 Spacer()
                 Button("Choose…", action: chooseRoot)
             }
+
+            Toggle("Index the library in the background and watch for changes", isOn: $autoIndex)
+            Toggle("Recognise text in images and scanned PDFs (OCR)", isOn: $ocrEnabled)
+            TextField("Path to uvx (optional)", text: $converterPath, prompt: Text("/opt/homebrew/bin/uvx"))
+                .textFieldStyle(.roundedBorder)
 
             Stepper("Chunk size: \(chunkSize) characters", value: $chunkSize, in: 100...5000, step: 100)
             Stepper("Chunk overlap: \(chunkOverlap) characters", value: $chunkOverlap, in: 0...1000, step: 50)
@@ -235,13 +260,14 @@ struct IndexSettingsSection: View {
                         Task { await DocumentIndexer.shared.index(root) }
                     }
                     .disabled(appState.rootURL == nil)
+                    Button("Index dashboard…") { appState.showDashboard() }
                     Spacer()
                 }
             }
         } header: {
             Text("Library and indexing")
         } footer: {
-            Text("Chunks are whole sentences packed to about the chunk size. Indexing uses the saved library folder and re-embeds files whose embeddings are missing or from another model.")
+            Text("Office and EPUB files are converted with markitdown through uvx (brew install uv). OCR uses Apple's Vision framework and covers the first \(DocumentParser.maxOCRPages) pages of a scanned PDF. Chunks are whole sentences packed to about the chunk size.")
         }
     }
 

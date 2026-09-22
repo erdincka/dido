@@ -4,6 +4,7 @@ import SwiftUI
 struct ChatHeaderView: View {
     let item: SelectedItem
     @Binding var previewURL: URL?
+    @Binding var showPreview: Bool
 
     @State private var showInfo = false
 
@@ -11,7 +12,7 @@ struct ChatHeaderView: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Image(systemName: item.isDirectory ? "folder.fill" : fileIcon)
+            Image(systemName: item.isLibrary ? "books.vertical.fill" : (item.isDirectory ? "folder.fill" : fileIcon))
                 .font(.title)
                 .foregroundStyle(item.isDirectory ? .blue : .secondary)
                 .frame(width: 44, height: 44)
@@ -22,7 +23,7 @@ struct ChatHeaderView: View {
                 Text(item.name)
                     .font(.headline)
                     .lineLimit(1)
-                Text(item.isDirectory ? "Folder context" : "Document context")
+                Text(item.isLibrary ? "Every indexed file" : (item.isDirectory ? "Folder context" : "Document context"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -30,6 +31,11 @@ struct ChatHeaderView: View {
             Spacer()
 
             HStack(spacing: 8) {
+                if !item.isDirectory {
+                    Button { showPreview.toggle() } label: { Image(systemName: "sidebar.trailing") }
+                        .buttonStyle(.bordered)
+                        .help(showPreview ? "Hide preview" : "Show preview")
+                }
                 if Self.quickLookExtensions.contains(item.url.pathExtension.lowercased()) {
                     Button { previewURL = item.url } label: { Image(systemName: "eye") }
                         .buttonStyle(.bordered)
@@ -38,12 +44,14 @@ struct ChatHeaderView: View {
                 Button { NSWorkspace.shared.activateFileViewerSelecting([item.url]) } label: { Image(systemName: "arrow.right.circle") }
                     .buttonStyle(.bordered)
                     .help("Show in Finder")
-                Button { showInfo.toggle() } label: { Image(systemName: "info.circle") }
-                    .buttonStyle(.bordered)
-                    .help("File information")
-                    .popover(isPresented: $showInfo, arrowEdge: .bottom) {
-                        FileInfoPopover(item: item) { showInfo = false }
-                    }
+                if !item.isLibrary {
+                    Button { showInfo.toggle() } label: { Image(systemName: "info.circle") }
+                        .buttonStyle(.bordered)
+                        .help("File information")
+                        .popover(isPresented: $showInfo, arrowEdge: .bottom) {
+                            FileInfoPopover(item: item) { showInfo = false }
+                        }
+                }
             }
         }
         .padding()

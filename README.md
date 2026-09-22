@@ -8,22 +8,30 @@ Personal, non-commercial use only. Not an HPE product.
 
 ## What it does
 
-- Browses a library folder in a sidebar, loading folders as you expand them, with file-name search.
-- Extracts text from Markdown, plain text, code, CSV, JSON, HTML, PDF and RTF natively, and from
+- Browses a library folder in a sidebar, loading folders as you expand them. The search field
+  matches file names and file contents, and a passage result opens the file with that passage
+  highlighted.
+- Indexes the whole library in the background at launch and watches it for changes, so new,
+  edited and deleted files are reflected within seconds. An index dashboard lists every file with
+  its status and reason, and offers reindex, remove-missing and clear.
+- Extracts text from Markdown, plain text, code, CSV, JSON, HTML, PDF and RTF natively; from
   docx, pptx, xlsx and epub through [markitdown](https://github.com/microsoft/markitdown) when
-  `uv` is installed.
-- Indexes files on demand, or a whole folder from the context menu or Settings, with progress and
-  cancel. Indexed text lives in a SwiftData store under `~/Library/Application Support/Dido`.
-- Answers with Apple Intelligence on macOS 26 when it is available, otherwise with any
-  OpenAI-compatible chat server: Ollama (the default, at `http://localhost:11434/v1`), LM Studio,
-  LiteLLM or OpenAI. Tokens are stored in the Keychain.
+  `uv` is installed (with a timeout and a clear message when it is missing); and from images and
+  scanned PDFs with Apple's Vision OCR.
+- Answers questions about a file, a folder or the whole library. Apple Intelligence is used on
+  macOS 26 when available, otherwise any OpenAI-compatible chat server: Ollama (the default, at
+  `http://localhost:11434/v1`), LM Studio, LiteLLM or OpenAI. Tokens are stored in the Keychain.
 - Embeds every passage on device with Apple's contextual embedding model (no server needed), or
   through a server's `/embeddings` endpoint if you prefer.
 - Finds the passages relevant to each question with vector search plus a keyword boost, sends
-  small files whole, and cites passages as [1], [2] with a clickable sources row under each answer.
+  small scopes whole, and cites passages as [1], [2]. Each citation and the sources row under an
+  answer open a preview pane showing the passage highlighted among its neighbours, or the
+  document itself (Markdown, PDF with the passage selected, images, or Quick Look).
 - Sends page images to vision-capable server models for PDFs and images.
-- Renders replies as Markdown; copy or delete any message; chat history is kept per file or
-  folder, capped at 200 messages each.
+- Renders replies as Markdown; copy or delete any message; chat history is kept per file, folder
+  or library, capped at 200 messages each.
+
+Indexed text and embeddings live in a SwiftData store under `~/Library/Application Support/Dido`.
 
 ## Requirements
 

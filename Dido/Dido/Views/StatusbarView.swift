@@ -25,8 +25,13 @@ struct StatusbarView: View {
                     .buttonStyle(.plain)
                     .help("Cancel indexing")
                 } else {
-                    Text("\(appState.indexedCount) documents · \(progress.vectorCount) passages")
-                    Text("(\(appState.indexSize))")
+                    Button {
+                        appState.showDashboard()
+                    } label: {
+                        Text("\(appState.indexedCount) documents · \(progress.vectorCount) passages (\(appState.indexSize))")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open the index dashboard")
                 }
             }
             .font(.caption)

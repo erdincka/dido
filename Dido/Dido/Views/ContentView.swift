@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Bindable var appState = AppState.shared
     private let dataStore = DataStore.shared
+    private let indexSettings = IndexSettings.shared
 
     var body: some View {
         NavigationSplitView {
@@ -17,6 +18,8 @@ struct ContentView: View {
                     Group {
                         if appState.showingSettings {
                             SettingsView()
+                        } else if appState.showingDashboard {
+                            IndexDashboardView()
                         } else if let activeItem = appState.activeItem {
                             ChatView(selectedItem: activeItem)
                                 .id(activeItem.id)
@@ -39,6 +42,10 @@ struct ContentView: View {
             StatusbarView()
         }
         .task { await DocumentIndexer.shared.loadVectorIndex() }
+        .task(id: appState.pkmRootBookmark ?? Data(appState.pkmRootPath.utf8)) {
+            let root = appState.activateRoot()
+            LibraryMonitor.shared.activate(root: root, autoIndex: indexSettings.autoIndex)
+        }
     }
 
     private var landingView: some View {
@@ -60,14 +67,26 @@ struct ContentView: View {
                     .frame(maxWidth: 400)
             }
 
-            Button {
-                appState.showingSettings = true
-            } label: {
-                Label("Open Settings", systemImage: "gearshape.fill")
-                    .padding(.horizontal)
+            HStack(spacing: 12) {
+                if appState.rootURL != nil {
+                    Button {
+                        appState.askLibrary()
+                    } label: {
+                        Label("Ask the whole library", systemImage: "books.vertical.fill")
+                            .padding(.horizontal)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                }
+                Button {
+                    appState.showingSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape.fill")
+                        .padding(.horizontal)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
