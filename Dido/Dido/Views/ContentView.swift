@@ -2,25 +2,30 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var appState = AppState.shared
-    
+    private let dataStore = DataStore.shared
+
     var body: some View {
         NavigationSplitView {
             LibrarySidebarView()
                 .listStyle(.sidebar)
         } detail: {
             ZStack(alignment: .top) {
-                Group {
-                    if appState.showingSettings {
-                        SettingsView()
-                    } else if let activeItem = appState.activeItem {
-                        ChatView(selectedItem: activeItem)
-                            .id(activeItem.id)
-                    } else {
-                        landingView
+                VStack(spacing: 0) {
+                    if let storeError = dataStore.storeError {
+                        StoreErrorBanner(message: storeError)
+                    }
+                    Group {
+                        if appState.showingSettings {
+                            SettingsView()
+                        } else if let activeItem = appState.activeItem {
+                            ChatView(selectedItem: activeItem)
+                                .id(activeItem.id)
+                        } else {
+                            landingView
+                        }
                     }
                 }
-                .environment(\.dynamicTypeSize, .xLarge)
-                
+
                 if let message = appState.notificationMessage {
                     NotificationToast(message: message, type: appState.notificationType)
                         .padding(.top, 20)
@@ -34,26 +39,26 @@ struct ContentView: View {
             StatusbarView()
         }
     }
-    
-    @ViewBuilder
+
     private var landingView: some View {
         VStack(spacing: 30) {
             Image(systemName: "sparkles")
                 .symbolEffect(.variableColor.iterative, options: .repeating)
                 .font(.system(size: 80))
                 .foregroundStyle(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-            
+
             VStack(spacing: 12) {
-                Text("Dido Assistant")
+                Text("Dido")
                     .font(.system(.title, design: .rounded, weight: .bold))
-                
-                Text("Select any file or folder in the sidebar to start a context-aware chat.")
+                Text(appState.rootURL == nil
+                     ? "Choose a library folder in Settings, then pick any file or folder in the sidebar to ask about it."
+                     : "Select any file or folder in the sidebar to start a context-aware chat.")
                     .font(.system(.body, design: .rounded))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 400)
             }
-            
+
             Button {
                 appState.showingSettings = true
             } label: {
@@ -66,14 +71,20 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor).opacity(0.5))
     }
-    
-    private func removeItem(_ item: SelectedItem) {
-        if let index = appState.selectedItems.firstIndex(of: item) {
-            if appState.activeItem == item {
-                appState.activeItem = nil
-            }
-            appState.selectedItems.remove(at: index)
+}
+
+/// Persistent banner shown when the database could not be opened.
+struct StoreErrorBanner: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Text(message).font(.callout).textSelection(.enabled)
+            Spacer()
         }
+        .padding(12)
+        .background(Color.red.opacity(0.1))
     }
 }
 

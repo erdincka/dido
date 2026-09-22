@@ -1,57 +1,55 @@
 import Foundation
 import Security
 
+/// Thin wrapper over the generic-password Keychain API.
 final class KeychainHelper: Sendable {
     static let shared = KeychainHelper()
-    
+
     private init() {}
-    
+
+    /// Stores `data`, replacing any existing item. Empty data removes the item.
     func save(_ data: Data, service: String, account: String) {
-        let query = [
+        guard !data.isEmpty else {
+            delete(service: service, account: account)
+            return
+        }
+        let query: [String: Any] = [
             kSecValueData as String: data,
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
-        ] as [String: Any]
-        
-        // Add to Keychain
+        ]
         let status = SecItemAdd(query as CFDictionary, nil)
-        
         if status == errSecDuplicateItem {
-            // Update existing
-            let updateQuery = [
+            let updateQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
                 kSecAttrAccount as String: account
-            ] as [String: Any]
-            
-            let attributesToUpdate = [kSecValueData as String: data] as [String: Any]
-            SecItemUpdate(updateQuery as CFDictionary, attributesToUpdate as CFDictionary)
+            ]
+            let attributes: [String: Any] = [kSecValueData as String: data]
+            SecItemUpdate(updateQuery as CFDictionary, attributes as CFDictionary)
         }
     }
-    
+
     func read(service: String, account: String) -> Data? {
-        let query = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
-        ] as [String: Any]
-        
+        ]
         var result: AnyObject?
         SecItemCopyMatching(query as CFDictionary, &result)
-        
         return result as? Data
     }
-    
+
     func delete(service: String, account: String) {
-        let query = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
-        ] as [String: Any]
-        
+        ]
         SecItemDelete(query as CFDictionary)
     }
 }

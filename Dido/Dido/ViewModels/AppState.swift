@@ -1,136 +1,105 @@
 import SwiftUI
 import Observation
 
+/// Application-wide UI state: the current context item, settings visibility, notifications and stats.
 @Observable @MainActor
 final class AppState {
     static let shared = AppState()
-    
-    var selectedItems: [SelectedItem] = [] {
-        didSet {
-            saveSelectedItems()
-        }
-    }
-    
-    var activeItem: SelectedItem?
-    var showingSettings: Bool = false
-    var searchText: String = ""
-    
-    var pkmRootPath: String = "" {
-        didSet {
-            UserDefaults.standard.set(pkmRootPath, forKey: "pkmRootPath")
-        }
-    }
-    
-    var pkmRootBookmark: Data? = nil {
-        didSet {
-            UserDefaults.standard.set(pkmRootBookmark, forKey: "pkmRootBookmark")
-        }
-    }
-    
-    var generatingStates: [UUID: Bool] = [:]
-    
-    // Notifications
-    var notificationMessage: String?
-    var notificationType: NotificationType = .info
-    
+
     enum NotificationType {
         case info, error, success
     }
-    
-    func showNotification(_ message: String, type: NotificationType = .info) {
-        Task { @MainActor in
-            self.notificationMessage = message
-            self.notificationType = type
-        }
-        
-        Task {
-            try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 seconds
-            await MainActor.run {
-                if self.notificationMessage == message {
-                    withAnimation {
-                        self.notificationMessage = nil
-                    }
-                }
-            }
-        }
+
+    var activeItem: SelectedItem?
+    /// A question to send as soon as the chat for `activeItem` appears (used by the debug launch flags).
+    var pendingQuestion: String?
+    var showingSettings: Bool = false
+    var searchText: String = ""
+
+    var pkmRootPath: String = UserDefaults.standard.string(forKey: "pkmRootPath") ?? "" {
+        didSet { UserDefaults.standard.set(pkmRootPath, forKey: "pkmRootPath") }
     }
-    
-    // Status info
-    var indexedCount: Int = 0
-    var indexSize: String = "0 MB"
+
+    var pkmRootBookmark: Data? = UserDefaults.standard.data(forKey: "pkmRootBookmark") {
+        didSet { UserDefaults.standard.set(pkmRootBookmark, forKey: "pkmRootBookmark") }
+    }
+
+    // MARK: - Notifications
+
+    private(set) var notificationMessage: String?
+    private(set) var notificationType: NotificationType = .info
+
+    // MARK: - Status bar
+
+    private(set) var indexedCount: Int = 0
+    private(set) var indexSize: String = "0 KB"
+
     var isLocalModel: Bool {
-        LLMService.shared.externalBaseURL.contains("localhost") || LLMService.shared.externalBaseURL.contains("127.0.0.1")
+        let url = LLMService.shared.externalBaseURL
+        return url.contains("localhost") || url.contains("127.0.0.1")
     }
-    
-    private init() {
-        self.pkmRootPath = UserDefaults.standard.string(forKey: "pkmRootPath") ?? ""
-        self.pkmRootBookmark = UserDefaults.standard.data(forKey: "pkmRootBookmark")
-        loadSelectedItems()
-    }
-    
-    func getSecurityScopedURL() -> URL? {
-        guard let data = pkmRootBookmark else { return nil }
-        var isStale = false
-        do {
-            let url = try URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale)
-            if isStale {
-                // Needs regeneration in a real app, but we will just return the URL for now
+
+    private init() {}
+
+    /// Shows a transient toast for four seconds.
+    func showNotification(_ message: String, type: NotificationType = .info) {
+        notificationMessage = message
+        notificationType = type
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            if notificationMessage == message {
+                withAnimation { notificationMessage = nil }
             }
-            return url
-        } catch {
+        }
+    }
+
+    // MARK: - Library root
+
+    /// The library root, resolved from the saved bookmark when there is one.
+    /// A stale bookmark is regenerated so it keeps working across moves and renames.
+    var rootURL: URL? {
+        if let data = pkmRootBookmark {
+            var isStale = false
+            if let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
+                if isStale, let fresh = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+                    pkmRootBookmark = fresh
+                }
+                return url
+            }
+        }
+        return pkmRootPath.isEmpty ? nil : URL(fileURLWithPath: pkmRootPath)
+    }
+
+    private var accessedRoot: URL?
+
+    /// Resolves the root and keeps security-scoped access open until the root changes.
+    func activateRoot() -> URL? {
+        guard let root = rootURL else {
+            accessedRoot?.stopAccessingSecurityScopedResource()
+            accessedRoot = nil
             return nil
         }
-    }
-    
-    private func saveSelectedItems() {
-        if let encoded = try? JSONEncoder().encode(selectedItems) {
-            UserDefaults.standard.set(encoded, forKey: "selectedItems")
+        if accessedRoot != root {
+            accessedRoot?.stopAccessingSecurityScopedResource()
+            _ = root.startAccessingSecurityScopedResource()
+            accessedRoot = root
         }
+        return root
     }
-    
-    private func loadSelectedItems() {
-        if let data = UserDefaults.standard.data(forKey: "selectedItems"),
-           let decoded = try? JSONDecoder().decode([SelectedItem].self, from: data) {
-            self.selectedItems = decoded
-        }
-    }
-    
-    func addSelectedItem(url: URL) {
-        if let existing = selectedItems.first(where: { $0.url == url }) {
-            activeItem = existing
-        } else {
-            let newItem = SelectedItem(url: url)
-            selectedItems.append(newItem)
-            activeItem = newItem
-        }
-    }
-    
-    func removeSelectedItem(_ item: SelectedItem) {
-        if let index = selectedItems.firstIndex(of: item) {
-            if activeItem == item {
-                activeItem = nil
-            }
-            selectedItems.remove(at: index)
-        }
-    }
-    
+
     func selectFile(_ url: URL) {
-        if let existing = selectedItems.first(where: { $0.url == url }) {
-            activeItem = existing
-        } else {
-            // For navigation, we might just want to set the activeItem without adding to saved list 
-            // OR we add it so history is preserved. Let's add it for history.
-            let newItem = SelectedItem(url: url)
-            selectedItems.append(newItem)
-            activeItem = newItem
-        }
+        activeItem = SelectedItem(url: url)
         showingSettings = false
     }
-    
-    @MainActor
+
+    func showHome() {
+        activeItem = nil
+        showingSettings = false
+    }
+
     func updateStats() {
-        let stats = VectorDatabaseService.shared.getStats()
-        self.indexedCount = stats.count
-        self.indexSize = stats.size
+        let store = DataStore.shared
+        indexedCount = store.indexedDocumentCount()
+        indexSize = ByteCountFormatter.string(fromByteCount: store.storeSizeOnDisk(), countStyle: .file)
     }
 }

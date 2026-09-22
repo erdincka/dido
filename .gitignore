@@ -28,3 +28,6 @@ Dido.xcodeproj
 # Packages
 .build/
 .swiftpm/
+
+# Release artefacts
+*.dmg

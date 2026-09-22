@@ -1,82 +1,62 @@
-# Dido - PKM Assistant (macOS)
+# Dido
 
-Dido is a native macOS application designed as an intelligent Personal Knowledge Management (PKM) assistant. It leverages Retrieval-Augmented Generation (RAG) to allow you to index local documents and query them using Large Language Models (LLMs) like Ollama or OpenAI-compatible APIs, all while maintaining a premium, native user experience.
+Dido is a personal macOS app for asking questions about the documents in a folder. Point it at a
+library folder, pick a file or folder in the sidebar, and chat about it with a local or remote
+language model. Answers stream in and every conversation is kept per file.
 
-## 🚀 Features
+Personal, non-commercial use only. Not an HPE product.
 
-- **Native macOS Experience:** Built with SwiftUI for a sleek, responsive, and energy-efficient desktop application.
-- **Local Indexing & RAG:** Seamlessly indexes your local PKM directory (Markdown, PDF, RTF, etc.) and uses vector search to provide context to your LLM queries.
-- **Top-Tier Security:** 
-    - **App Sandboxing:** Fully sandboxed for secure operation.
-    - **Keychain Integration:** Sensitive API tokens are stored securely in the macOS Keychain.
-    - **Security-Scoped Bookmarks:** Remembers your PKM root folder across restarts without compromising system security.
-- **Swift 6 & Modern Concurrency:** Fully aligned with Swift 6's strict concurrency requirements for a crash-free, thread-safe experience.
-- **Flexible AI Endpoints:** Support for local Ollama instances and OpenAI-compatible APIs (planned).
+## What it does
 
-## 🛠 Tech Stack
+- Browses a library folder in a sidebar, loading folders as you expand them, with file-name search.
+- Extracts text from Markdown, plain text, code, CSV, JSON, HTML, PDF and RTF natively, and from
+  docx, pptx, xlsx and epub through [markitdown](https://github.com/microsoft/markitdown) when
+  `uv` is installed.
+- Indexes files on demand, or a whole folder from the context menu or Settings, with progress and
+  cancel. Indexed text lives in a SwiftData store under `~/Library/Application Support/Dido`.
+- Talks to any OpenAI-compatible chat server: Ollama (the default, at
+  `http://localhost:11434/v1`), LM Studio, LiteLLM or OpenAI. Tokens are stored in the Keychain.
+- Sends page images to vision-capable models for PDFs and images.
+- Renders replies as Markdown; copy or delete any message; chat history is kept per file or
+  folder, capped at 200 messages each.
 
-- **Language:** Swift 6.0+
-- **Framework:** SwiftUI
-- **Database:** SwiftData (for document metadata and indexing)
-- **Project Management:** [XcodeGen](https://github.com/yonaskolb/XcodeGen)
-- **Build System:** xcodebuild / Xcode
+Embeddings can be generated while indexing but are off by default: retrieval over them is the next
+item on the roadmap (see `PLAN.md`), so today the model receives the file's text, or the
+first-level text files of a folder, up to a fixed size.
 
-## 📋 Requirements
+## Requirements
 
-- **macOS:** 14.0 (Sonoma) or newer.
-- **Xcode:** 15.3 or newer.
-- **XcodeGen:** Required to generate the project file.
-- **Ollama:** (Optional) For local LLM inference.
+- macOS 14 Sonoma or newer, Apple silicon or Intel.
+- Xcode 16 or newer and [XcodeGen](https://github.com/yonaskolb/XcodeGen) to build.
+- Optional: [Ollama](https://ollama.com) for local models; [uv](https://docs.astral.sh/uv/) for
+  Office and EPUB files (`brew install uv`).
 
-## 🔨 Build Instructions
+## Build
 
-Dido uses `XcodeGen` to manage its project structure. Follow these steps to build the app from source:
-
-1. **Install XcodeGen:**
-   ```bash
-   brew install xcodegen
-   ```
-
-2. **Generate the Xcode Project:**
-   Navigate to the repository root and run:
-   ```bash
-   xcodegen generate
-   ```
-
-3. **Open the Project:**
-   ```bash
-   open Dido.xcodeproj
-   ```
-
-4. **Build & Run:**
-   Select the **Dido** scheme and target **My Mac**. Press `Cmd + R` to build and run.
-
-### Command Line Build
-To build a release version (unsigned) for Apple Silicon:
 ```bash
-xcodebuild -project Dido.xcodeproj -scheme Dido -configuration Release -derivedDataPath build_output clean build CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO -sdk macosx ARCHS="arm64"
+brew install xcodegen
+xcodegen generate
+open Dido.xcodeproj
 ```
 
-## 🤝 Contributing
+Select the Dido scheme and run. From the command line:
 
-We welcome contributions from the community! To maintain high code quality and consistency, please follow these guidelines:
+```bash
+xcodebuild -project Dido.xcodeproj -scheme Dido -configuration Release build CODE_SIGNING_ALLOWED=NO
+```
 
-1. **Fork & Branch:** Fork the repository and create a feature branch (`feature/my-new-feature`).
-2. **Coding Standards:**
-   - Follow [Swift API Design Guidelines](https://www.swift.org/documentation/api-design-guidelines/).
-   - Ensure all new code is **Swift 6 Concurrency-safe**.
-   - Keep views modular and under 200 lines where possible.
-3. **Pull Requests:** Provide a clear description of changes, screenshots for UI modifications, and ensure the project builds correctly.
-4. **Best Practices:** Prefer `struct` over `class`, use `@Observable` for state, and avoid force unwrapping (`!`).
+The app is not sandboxed and not signed; it is meant to be built and run locally.
 
-## ⚖️ License
+## Project layout
 
-**Non-Commercial Use Only.**
-Copyright (c) 2026 Dido. All rights reserved.
+- `Dido/Dido/Models` — SwiftData models and the value types used by the UI.
+- `Dido/Dido/Services` — parser, chunker, indexer, file scanner, API client and stores. Heavy work
+  runs on actors, never on the main thread.
+- `Dido/Dido/Views` — SwiftUI views, each under about 200 lines.
+- `CLAUDE.md` — conventions and recorded decisions. `PLAN.md` — the roadmap.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, or distribute copies of the Software, provided that such use is for **non-commercial purposes only**.
+## Licence
 
-Commercial use, including but not limited to selling the software or using it as part of a for-profit service, is strictly prohibited without prior written consent from the author.
-
----
-*Built with ❤️ for the macOS community.*
+Copyright (c) 2026 Dido. Free for non-commercial use: you may use, copy, modify and share the
+software provided it is not sold or used as part of a for-profit service without the author's
+written consent. No warranty of any kind.

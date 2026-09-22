@@ -2,6 +2,10 @@ name: Dido
 options:
   bundleIdPrefix: com.dido
   createIntermediateGroups: true
+packages:
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: 2.4.1
 targets:
   Dido:
     type: application
@@ -11,13 +15,20 @@ targets:
       path: Dido/Dido.entitlements
     sources:
       - path: Dido
+    dependencies:
+      - package: MarkdownUI
     settings:
       CODE_SIGN_STYLE: Automatic
-      DEVELOPMENT_TEAM: "" # Needs to be set if deploying, empty for local sim/builds
+      DEVELOPMENT_TEAM: "" # Needs to be set if deploying, empty for local builds
       ENABLE_PREVIEWS: YES
       GENERATE_INFOPLIST_FILE: YES
       CLANG_ENABLE_OBJC_ARC: YES
       SWIFT_VERSION: 6.0
+      SWIFT_STRICT_CONCURRENCY: complete
+      MARKETING_VERSION: "1.2.0"
+      CURRENT_PROJECT_VERSION: "3"
+      INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Dido"
+      INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
 schemes:
   Dido:
     build:
@@ -33,5 +44,3 @@ schemes:
       config: Debug
     archive:
       config: Release
-      INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Dido"
-      INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
