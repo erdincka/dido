@@ -33,6 +33,9 @@ final class Document {
     var statusRaw: String
     /// Human-readable detail for failures, for example the parser's error message.
     var detail: String?
+    /// Identifier of the embedding model used for this document's chunks, nil when none were generated.
+    var embeddingModel: String?
+    var embeddingDimension: Int = 0
 
     @Relationship(deleteRule: .cascade, inverse: \DocumentChunk.document)
     var chunks: [DocumentChunk] = []
@@ -62,14 +65,19 @@ final class DocumentChunk {
     var text: String
     /// Embedding vector; empty when embeddings were not generated.
     var vector: [Float]
+    /// UTF-16 offsets of the chunk within the document's extracted text.
+    var startOffset: Int = 0
+    var endOffset: Int = 0
 
     var document: Document?
 
-    init(ordinal: Int, text: String, vector: [Float]) {
+    init(ordinal: Int, text: String, vector: [Float], startOffset: Int, endOffset: Int) {
         self.id = UUID()
         self.ordinal = ordinal
         self.text = text
         self.vector = vector
+        self.startOffset = startOffset
+        self.endOffset = endOffset
     }
 }
 
@@ -103,6 +111,8 @@ final class ChatMessageRecord {
     var roleRaw: String
     var content: String
     var createdAt: Date
+    /// JSON-encoded `[Citation]` for assistant replies.
+    var sourcesJSON: String?
 
     var thread: ChatThread?
 

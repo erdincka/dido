@@ -5,18 +5,33 @@ enum ChatRole: String, Codable, Sendable {
     case assistant
 }
 
+/// A passage the assistant was given, numbered so replies can cite it as [n].
+struct Citation: Codable, Hashable, Sendable {
+    let index: Int
+    let path: String
+    let filename: String
+    let ordinal: Int
+    let start: Int
+    let end: Int
+    let score: Float
+
+    var url: URL { URL(fileURLWithPath: path) }
+}
+
 /// A chat message as shown in the UI. Persisted through `ChatStore`.
 struct ChatMessage: Identifiable, Hashable, Sendable {
     let id: UUID
     let role: ChatRole
     var content: String
     let createdAt: Date
+    var sources: [Citation]
 
-    init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date()) {
+    init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date(), sources: [Citation] = []) {
         self.id = id
         self.role = role
         self.content = content
         self.createdAt = createdAt
+        self.sources = sources
     }
 }
 

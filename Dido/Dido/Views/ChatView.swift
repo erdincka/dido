@@ -57,7 +57,8 @@ struct ChatView: View {
                         MessageRow(
                             message: message,
                             onCopy: { copy(message) },
-                            onDelete: { delete(message) }
+                            onDelete: { delete(message) },
+                            onOpenSource: { previewURL = $0.url }
                         )
                         .id(message.id)
                     }
@@ -114,9 +115,12 @@ struct ChatView: View {
 
         generation = Task {
             var failure: String?
+            var sources: [Citation] = []
             do {
-                let (context, images) = await ContextBuilder().build(for: selectedItem, includeImages: llm.supportsVision)
-                for try await token in llm.streamAnswer(question: question, history: history, context: context, images: images) {
+                let provider = llm.makeAnswerProvider()
+                let context = await ContextBuilder().build(for: selectedItem, question: question, budget: provider.contextBudget, includeImages: provider.supportsImages)
+                sources = context.citations
+                for try await token in llm.streamAnswer(question: question, history: history, context: context) {
                     streamingText += token
                 }
             } catch {
@@ -125,7 +129,7 @@ struct ChatView: View {
                     logger.error("Generation failed: \(error.localizedDescription)")
                 }
             }
-            finishGeneration(stopped: Task.isCancelled, failure: failure)
+            finishGeneration(stopped: Task.isCancelled, failure: failure, sources: sources)
         }
     }
 
@@ -133,7 +137,21 @@ struct ChatView: View {
         generation?.cancel()
     }
 
-    private func finishGeneration(stopped: Bool, failure: String?) {
+    /// The [n] markers the model actually used, including lists such as [2, 5], so the sources row matches the answer.
+    private static func citedIndexes(in text: String) -> Set<Int> {
+        guard let regex = try? NSRegularExpression(pattern: #"\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\]"#) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+        var numbers: Set<Int> = []
+        for match in regex.matches(in: text, range: range) {
+            guard let groupRange = Range(match.range(at: 1), in: text) else { continue }
+            for piece in text[groupRange].split(separator: ",") {
+                if let number = Int(piece.trimmingCharacters(in: .whitespaces)) { numbers.insert(number) }
+            }
+        }
+        return numbers
+    }
+
+    private func finishGeneration(stopped: Bool, failure: String?, sources: [Citation]) {
         var content = streamingText
         if let failure {
             content += (content.isEmpty ? "" : "\n\n") + "**Error:** \(failure)"
@@ -141,7 +159,9 @@ struct ChatView: View {
             content += "\n\n_Stopped._"
         }
         if !content.isEmpty {
-            let reply = ChatMessage(role: .assistant, content: content)
+            let cited = Self.citedIndexes(in: content)
+            let used = sources.filter { cited.contains($0.index) }
+            let reply = ChatMessage(role: .assistant, content: content, sources: used.isEmpty ? sources : used)
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 messages.append(reply)
             }

@@ -75,13 +75,13 @@ struct OpenAICompatibleClient: Sendable {
     let token: String
 
     private struct ModelsResponse: Decodable { struct Model: Decodable { let id: String }; let data: [Model] }
-    private struct EmbeddingResponse: Decodable { struct Item: Decodable { let embedding: [Double] }; let data: [Item] }
+    private struct EmbeddingResponse: Decodable { struct Item: Decodable { let embedding: [Double]; let index: Int? }; let data: [Item] }
     private struct StreamChunk: Decodable {
         struct Choice: Decodable { struct Delta: Decodable { let content: String? }; let delta: Delta? }
         let choices: [Choice]?
     }
     private struct ChatRequest: Encodable { let model: String; let messages: [APIMessage]; let stream: Bool }
-    private struct EmbeddingRequest: Encodable { let model: String; let input: String }
+    private struct EmbeddingRequest: Encodable { let model: String; let input: [String] }
 
     private func request(path: String, timeout: TimeInterval) throws -> URLRequest {
         guard !baseURL.isEmpty else { throw LLMServiceError.endpointNotConfigured }
@@ -116,15 +116,22 @@ struct OpenAICompatibleClient: Sendable {
     }
 
     func embedding(for text: String, model: String) async throws -> [Float] {
+        try await embeddings(for: [text], model: model).first ?? []
+    }
+
+    /// Embeds several texts in one request, returned in input order.
+    func embeddings(for texts: [String], model: String) async throws -> [[Float]] {
+        guard !texts.isEmpty else { return [] }
         var request = try request(path: "/embeddings", timeout: 120)
         request.httpMethod = "POST"
-        request.httpBody = try JSONEncoder().encode(EmbeddingRequest(model: model, input: text))
+        request.httpBody = try JSONEncoder().encode(EmbeddingRequest(model: model, input: texts))
         let (data, response) = try await URLSession.shared.data(for: request)
         try await check(response) { data }
-        guard let decoded = try? JSONDecoder().decode(EmbeddingResponse.self, from: data), let first = decoded.data.first else {
+        guard let decoded = try? JSONDecoder().decode(EmbeddingResponse.self, from: data), decoded.data.count == texts.count else {
             throw LLMServiceError.decodingError
         }
-        return first.embedding.map(Float.init)
+        let ordered = decoded.data.enumerated().sorted { ($0.element.index ?? $0.offset) < ($1.element.index ?? $1.offset) }
+        return ordered.map { $0.element.embedding.map(Float.init) }
     }
 
     /// Streams the assistant's reply token by token using server-sent events.

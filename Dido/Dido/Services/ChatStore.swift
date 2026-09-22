@@ -31,12 +31,18 @@ final class ChatStore {
         guard let thread = thread(for: item, createIfNeeded: false) else { return [] }
         return thread.messages
             .sorted { $0.createdAt < $1.createdAt }
-            .map { ChatMessage(id: $0.id, role: ChatRole(rawValue: $0.roleRaw) ?? .assistant, content: $0.content, createdAt: $0.createdAt) }
+            .map { record in
+                let sources = record.sourcesJSON.flatMap { try? JSONDecoder().decode([Citation].self, from: Data($0.utf8)) } ?? []
+                return ChatMessage(id: record.id, role: ChatRole(rawValue: record.roleRaw) ?? .assistant, content: record.content, createdAt: record.createdAt, sources: sources)
+            }
     }
 
     func append(_ message: ChatMessage, to item: SelectedItem) {
         guard let context, let thread = thread(for: item, createIfNeeded: true) else { return }
         let record = ChatMessageRecord(id: message.id, role: message.role, content: message.content, createdAt: message.createdAt)
+        if !message.sources.isEmpty, let data = try? JSONEncoder().encode(message.sources) {
+            record.sourcesJSON = String(decoding: data, as: UTF8.self)
+        }
         record.thread = thread
         context.insert(record)
         thread.updatedAt = Date()

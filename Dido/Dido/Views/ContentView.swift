@@ -38,6 +38,7 @@ struct ContentView: View {
         .safeAreaInset(edge: .bottom) {
             StatusbarView()
         }
+        .task { await DocumentIndexer.shared.loadVectorIndex() }
     }
 
     private var landingView: some View {

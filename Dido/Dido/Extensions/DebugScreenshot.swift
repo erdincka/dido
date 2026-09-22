@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Debug-only helper for visual verification without Screen Recording permission.
-/// Launch with `-DidoScreenshot /path/to/out.png` (optionally `-DidoAppearance dark`, `-DidoOpen /file`, `-DidoAsk "question"`, `-DidoScreenshotDelay 30`)
+/// Launch with `-DidoScreenshot /path/to/out.png` (optionally `-DidoAppearance dark`, `-DidoOpen /file`, `-DidoAsk "question"`, `-DidoShowSettings YES`, `-DidoScreenshotDelay 30`)
 /// and the app writes a PNG of its main window after a short delay, then quits.
 @MainActor
 final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
@@ -11,6 +11,9 @@ final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
         let defaults = UserDefaults.standard
         if let appearance = defaults.string(forKey: "DidoAppearance") {
             NSApp.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
+        }
+        if defaults.bool(forKey: "DidoShowSettings") {
+            AppState.shared.showingSettings = true
         }
         if let open = defaults.string(forKey: "DidoOpen") {
             AppState.shared.pendingQuestion = defaults.string(forKey: "DidoAsk")

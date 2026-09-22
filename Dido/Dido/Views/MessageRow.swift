@@ -1,12 +1,13 @@
 import SwiftUI
 import MarkdownUI
 
-/// One chat bubble. Assistant replies render as Markdown; copy and delete appear on hover.
+/// One chat bubble. Assistant replies render as Markdown with clickable [n] citations and a sources list.
 struct MessageRow: View {
     let message: ChatMessage
     var isStreaming = false
     var onCopy: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
+    var onOpenSource: ((Citation) -> Void)? = nil
 
     @State private var isHovered = false
 
@@ -26,8 +27,11 @@ struct MessageRow: View {
                     .padding(.top, 4)
             }
 
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
                 bubble
+                if !message.sources.isEmpty {
+                    SourcesList(sources: message.sources, onOpen: onOpenSource)
+                }
                 if !isStreaming {
                     actions.opacity(isHovered ? 1 : 0)
                 }
@@ -51,9 +55,15 @@ struct MessageRow: View {
                     .foregroundStyle(.white)
                     .textSelection(.enabled)
             } else {
-                Markdown(message.content)
+                Markdown(Self.linkCitations(in: message.content))
                     .markdownTheme(.basic)
                     .textSelection(.enabled)
+                    .environment(\.openURL, OpenURLAction { url in
+                        guard url.scheme == "dido-source", let number = Int(url.host ?? ""),
+                              let source = message.sources.first(where: { $0.index == number }) else { return .systemAction }
+                        onOpenSource?(source)
+                        return .handled
+                    })
             }
         }
         .padding(.horizontal, 16)
@@ -86,59 +96,109 @@ struct MessageRow: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 4)
     }
+
+    /// Turns bare [n] and [n, m] markers into links the bubble can open. Existing Markdown links are left alone.
+    static func linkCitations(in text: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\](?!\()"#) else { return text }
+        var output = text
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).reversed() {
+            guard let whole = Range(match.range, in: text), let group = Range(match.range(at: 1), in: text) else { continue }
+            let links = text[group].split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .map { "[\($0)](dido-source://\($0))" }
+                .joined(separator: ", ")
+            output.replaceSubrange(whole, with: "\\[" + links + "\\]")
+        }
+        return output
+    }
 }
 
-/// The prompt field with a send button that becomes a stop button while streaming.
-struct ChatComposer: View {
-    @Binding var draft: String
-    let isGenerating: Bool
-    let placeholder: String
-    let onSend: () -> Void
-    let onStop: () -> Void
-
-    private var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isGenerating
-    }
+/// Numbered passages an answer drew on. Clicking one previews the file.
+struct SourcesList: View {
+    let sources: [Citation]
+    var onOpen: ((Citation) -> Void)?
 
     var body: some View {
-        VStack(spacing: 12) {
-            HStack(alignment: .bottom, spacing: 12) {
-                TextField(placeholder, text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .padding(12)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.8))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.secondary.opacity(0.2), lineWidth: 1))
-                    .lineLimit(1...10)
-                    .onSubmit { if canSend { onSend() } }
-
-                if isGenerating {
-                    Button(action: onStop) {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 34))
-                            .foregroundStyle(.red)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Sources").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            FlowLayout(spacing: 6) {
+                ForEach(sources, id: \.index) { source in
+                    Button { onOpen?(source) } label: {
+                        HStack(spacing: 4) {
+                            Text("\(source.index)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.blue)
+                            Text(source.filename)
+                                .font(.caption2)
+                                .lineLimit(1)
+                            Text("part \(source.ordinal + 1)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
-                    .help("Stop generating")
-                    .keyboardShortcut(".", modifiers: .command)
-                } else {
-                    Button(action: onSend) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 34))
-                            .foregroundStyle(canSend ? AnyShapeStyle(LinearGradient(colors: [.blue, .teal], startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(.gray))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
-                    .help("Send")
+                    .help(source.path)
                 }
             }
-
-            Text("Dido can make mistakes. Verify important information.")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .opacity(0.7)
         }
-        .padding()
-        .background(.ultraThinMaterial)
+        .padding(.horizontal, 4)
+    }
+}
+
+/// Wraps its children onto as many rows as needed.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(proposal: proposal, subviews: subviews)
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+        for row in rows {
+            var rowWidth: CGFloat = 0
+            var rowHeight: CGFloat = 0
+            for item in row {
+                rowWidth += item.size.width
+                rowHeight = max(rowHeight, item.size.height)
+            }
+            rowWidth += CGFloat(max(row.count - 1, 0)) * spacing
+            width = max(width, rowWidth)
+            height += rowHeight
+        }
+        height += CGFloat(max(rows.count - 1, 0)) * spacing
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(proposal: proposal, subviews: subviews) {
+            var x = bounds.minX
+            let rowHeight = row.map { $0.size.height }.max() ?? 0
+            for item in row {
+                subviews[item.index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
+                x += item.size.width + spacing
+            }
+            y += rowHeight + spacing
+        }
+    }
+
+    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> [[(index: Int, size: CGSize)]] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [[(index: Int, size: CGSize)]] = [[]]
+        var width: CGFloat = 0
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            if width + size.width > maxWidth, !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                width = 0
+            }
+            rows[rows.count - 1].append((index, size))
+            width += size.width + spacing
+        }
+        return rows
     }
 }

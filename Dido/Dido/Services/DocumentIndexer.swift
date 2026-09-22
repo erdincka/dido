@@ -10,6 +10,8 @@ final class IndexProgress {
     var currentFile = ""
     var completed = 0
     var total = 0
+    /// Number of embedded chunks currently searchable.
+    var vectorCount = 0
 
     private init() {}
 
@@ -20,13 +22,9 @@ final class IndexProgress {
         currentFile = ""
     }
 
-    func advance(to file: String) {
-        currentFile = file
-    }
-
-    func fileDone() {
-        completed += 1
-    }
+    func advance(to file: String) { currentFile = file }
+    func fileDone() { completed += 1 }
+    func setVectorCount(_ count: Int) { vectorCount = count }
 
     func end() {
         isIndexing = false
@@ -34,13 +32,14 @@ final class IndexProgress {
     }
 }
 
-/// Walks files, parses, chunks, optionally embeds, and stores them. One run at a time; cancellable.
+/// Walks files, parses, chunks, embeds and stores them, keeping the vector index current. One run at a time; cancellable.
 actor DocumentIndexer {
     static let shared = DocumentIndexer()
 
     private let logger = Logger(subsystem: "com.dido", category: "Indexer")
     private var writer: IndexWriter?
     private var currentRun: Task<Void, Never>?
+    private let embeddingBatchSize = 16
 
     private init() {}
 
@@ -58,8 +57,25 @@ actor DocumentIndexer {
         await indexWriter()?.isIndexed(path: path) ?? false
     }
 
+    /// True when the file has been indexed with the current embedding model since it was last modified.
+    func isCurrent(url: URL, embeddingModel: String) async -> Bool {
+        guard let existing = await indexWriter()?.existingDocument(at: url.path), existing.isIndexed else { return false }
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
+        return existing.dateIndexed >= modified && existing.embeddingModel == embeddingModel
+    }
+
     func textChunks(for url: URL) async -> [String] {
         await indexWriter()?.textChunks(for: url.path) ?? []
+    }
+
+    /// Loads every chunk embedded with the current model into the in-memory vector index.
+    func loadVectorIndex() async {
+        let provider = await LLMService.shared.makeEmbeddingProvider()
+        guard let writer = await indexWriter() else { return }
+        let entries = await writer.entries(forModel: provider.identifier)
+        await VectorIndex.shared.replaceAll(entries, model: provider.identifier)
+        await IndexProgress.shared.setVectorCount(entries.count)
+        logger.info("Vector index loaded: \(entries.count) chunks for \(provider.identifier)")
     }
 
     // MARK: - Runs
@@ -85,8 +101,11 @@ actor DocumentIndexer {
             await AppState.shared.showNotification("Indexing is unavailable because the database could not be opened.", type: .error)
             return
         }
-        let configuration = await IndexSettings.shared.configuration
-        let client = await LLMService.shared.makeClient()
+        let chunker = await IndexSettings.shared.chunker
+        let provider = await LLMService.shared.makeEmbeddingProvider()
+        if await VectorIndex.shared.modelIdentifier != provider.identifier {
+            await loadVectorIndex()
+        }
         let name = url.lastPathComponent
 
         let files = await FileSystemScanner.shared.regularFiles(under: url)
@@ -95,18 +114,20 @@ actor DocumentIndexer {
             await AppState.shared.showNotification("Indexing \(name)…")
         }
 
-        var embeddingsAvailable = configuration.embeddingsEnabled
+        var embeddingsAvailable = true
         var stored = 0
         for file in files {
             if Task.isCancelled { break }
             await IndexProgress.shared.advance(to: file.lastPathComponent)
-            let result = await indexFile(file, writer: writer, configuration: configuration, client: client, embeddingsAvailable: &embeddingsAvailable)
-            if result { stored += 1 }
+            if await indexFile(file, writer: writer, chunker: chunker, provider: provider, embeddingsAvailable: &embeddingsAvailable) {
+                stored += 1
+            }
             await IndexProgress.shared.fileDone()
         }
 
         let cancelled = Task.isCancelled
         await IndexProgress.shared.end()
+        await IndexProgress.shared.setVectorCount(VectorIndex.shared.count)
         await AppState.shared.updateStats()
         if !quiet {
             if cancelled {
@@ -118,18 +139,24 @@ actor DocumentIndexer {
     }
 
     /// Returns true when the file's text was stored.
-    private func indexFile(_ url: URL, writer: IndexWriter, configuration: IndexerConfiguration, client: OpenAICompatibleClient, embeddingsAvailable: inout Bool) async -> Bool {
+    private func indexFile(_ url: URL, writer: IndexWriter, chunker: TextChunker, provider: any EmbeddingProvider, embeddingsAvailable: inout Bool) async -> Bool {
         let path = url.path
         let ext = url.pathExtension.lowercased()
         let filename = url.lastPathComponent
 
+        func record(_ status: IndexStatus, detail: String? = nil) async {
+            _ = try? await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: status, detail: detail, embeddingModel: nil, chunks: []))
+            await VectorIndex.shared.remove(path: path)
+        }
+
         guard DocumentParser.supportedExtensions.contains(ext) else {
-            try? await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: .skippedUnsupported, detail: nil, chunks: []))
+            await record(.skippedUnsupported)
             return false
         }
 
         let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
-        if let existing = await writer.existingDocument(at: path), existing.isIndexed, existing.dateIndexed >= modified {
+        if let existing = await writer.existingDocument(at: path), existing.isIndexed, existing.dateIndexed >= modified,
+           existing.embeddingModel == provider.identifier || !embeddingsAvailable {
             return false
         }
 
@@ -138,35 +165,46 @@ actor DocumentIndexer {
             text = try await DocumentParser.shared.text(of: url)
         } catch {
             logger.error("Parse failed for \(path): \(error.localizedDescription)")
-            try? await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: .parseFailed, detail: error.localizedDescription, chunks: []))
+            await record(.parseFailed, detail: error.localizedDescription)
             return false
         }
 
-        let pieces = configuration.chunker.chunk(text)
+        let pieces = chunker.chunk(text)
         guard !pieces.isEmpty else {
-            try? await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: .empty, detail: nil, chunks: []))
+            await record(.empty)
             return false
         }
 
-        var chunks: [IndexedChunk] = []
-        for (ordinal, piece) in pieces.enumerated() {
-            if Task.isCancelled { return false }
-            var vector: [Float] = []
-            if embeddingsAvailable {
+        var vectors: [[Float]] = []
+        if embeddingsAvailable {
+            for batchStart in stride(from: 0, to: pieces.count, by: embeddingBatchSize) {
+                if Task.isCancelled { return false }
+                let batch = Array(pieces[batchStart..<min(batchStart + embeddingBatchSize, pieces.count)])
                 do {
-                    vector = try await client.embedding(for: piece, model: configuration.embeddingModel)
+                    vectors.append(contentsOf: try await provider.embed(batch.map(\.text)))
                 } catch {
                     embeddingsAvailable = false
+                    vectors = []
                     logger.error("Embeddings disabled for this run: \(error.localizedDescription)")
-                    await AppState.shared.showNotification("Embeddings unavailable (\(error.localizedDescription)). Indexing text only.", type: .error)
+                    await AppState.shared.showNotification("Embeddings unavailable: \(error.localizedDescription) Indexing text only.", type: .error)
+                    break
                 }
             }
-            chunks.append(IndexedChunk(ordinal: ordinal, text: piece, vector: vector))
+        }
+        let embedded = vectors.count == pieces.count
+        let chunks = pieces.enumerated().map { offset, piece in
+            IndexedChunk(ordinal: offset, text: piece.text, start: piece.start, end: piece.end, vector: embedded ? vectors[offset] : [])
         }
 
         do {
-            try await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: .indexed, detail: nil, chunks: chunks))
-            logger.info("Indexed \(path) (\(chunks.count) chunks)")
+            let entries = try await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: .indexed, detail: nil,
+                                                             embeddingModel: embedded ? provider.identifier : nil, chunks: chunks))
+            if embedded {
+                await VectorIndex.shared.replace(path: path, with: entries, model: provider.identifier)
+            } else {
+                await VectorIndex.shared.remove(path: path)
+            }
+            logger.info("Indexed \(path) (\(chunks.count) chunks, embedded: \(embedded))")
             return true
         } catch {
             logger.error("Store failed for \(path): \(error.localizedDescription)")

@@ -8,12 +8,15 @@ struct IndexedFile: Sendable {
     let type: String
     let status: IndexStatus
     let detail: String?
+    let embeddingModel: String?
     let chunks: [IndexedChunk]
 }
 
 struct IndexedChunk: Sendable {
     let ordinal: Int
     let text: String
+    let start: Int
+    let end: Int
     let vector: [Float]
 }
 
@@ -22,38 +25,62 @@ struct ExistingDocument: Sendable {
     let id: PersistentIdentifier
     let dateIndexed: Date
     let isIndexed: Bool
+    let embeddingModel: String?
 }
 
 /// Background writer for the index. All SwiftData work for indexing happens here, off the main actor.
 @ModelActor
 actor IndexWriter {
     func existingDocument(at path: String) -> ExistingDocument? {
-        let descriptor = FetchDescriptor<Document>(predicate: #Predicate { $0.path == path })
-        guard let document = (try? modelContext.fetch(descriptor))?.first else { return nil }
-        return ExistingDocument(id: document.persistentModelID, dateIndexed: document.dateIndexed, isIndexed: document.isIndexed)
+        guard let document = fetchDocument(path) else { return nil }
+        return ExistingDocument(id: document.persistentModelID, dateIndexed: document.dateIndexed, isIndexed: document.isIndexed, embeddingModel: document.embeddingModel)
     }
 
     func isIndexed(path: String) -> Bool {
         existingDocument(at: path)?.isIndexed ?? false
     }
 
-    /// Replaces whatever is stored for the file's path with `file`.
-    func store(_ file: IndexedFile) throws {
+    /// Replaces whatever is stored for the file's path with `file`. Returns the stored chunks as index entries.
+    @discardableResult
+    func store(_ file: IndexedFile) throws -> [IndexEntry] {
         let path = file.path
         let descriptor = FetchDescriptor<Document>(predicate: #Predicate { $0.path == path })
         for stale in (try? modelContext.fetch(descriptor)) ?? [] {
             modelContext.delete(stale)
         }
         let document = Document(filename: file.filename, path: file.path, type: file.type, status: file.status, detail: file.detail)
-        document.chunks = file.chunks.map { DocumentChunk(ordinal: $0.ordinal, text: $0.text, vector: $0.vector) }
+        document.embeddingModel = file.embeddingModel
+        document.embeddingDimension = file.chunks.first?.vector.count ?? 0
+        let chunks = file.chunks.map { DocumentChunk(ordinal: $0.ordinal, text: $0.text, vector: $0.vector, startOffset: $0.start, endOffset: $0.end) }
+        document.chunks = chunks
         modelContext.insert(document)
         try modelContext.save()
+        return chunks.compactMap { Self.entry(for: $0, in: document) }
     }
 
     /// The text of every chunk for a file, in order.
     func textChunks(for path: String) -> [String] {
-        let descriptor = FetchDescriptor<Document>(predicate: #Predicate { $0.path == path })
-        guard let document = (try? modelContext.fetch(descriptor))?.first else { return [] }
+        guard let document = fetchDocument(path) else { return [] }
         return document.chunks.sorted { $0.ordinal < $1.ordinal }.map(\.text)
+    }
+
+    /// Every embedded chunk produced with `model`, for loading the vector index at launch.
+    func entries(forModel model: String) -> [IndexEntry] {
+        let descriptor = FetchDescriptor<Document>(predicate: #Predicate { $0.isIndexed && $0.embeddingModel == model })
+        let documents = (try? modelContext.fetch(descriptor)) ?? []
+        return documents.flatMap { document in
+            document.chunks.compactMap { Self.entry(for: $0, in: document) }
+        }
+    }
+
+    private func fetchDocument(_ path: String) -> Document? {
+        let descriptor = FetchDescriptor<Document>(predicate: #Predicate { $0.path == path })
+        return (try? modelContext.fetch(descriptor))?.first
+    }
+
+    private static func entry(for chunk: DocumentChunk, in document: Document) -> IndexEntry? {
+        guard !chunk.vector.isEmpty else { return nil }
+        return IndexEntry(chunkID: chunk.id, path: document.path, filename: document.filename, ordinal: chunk.ordinal,
+                          start: chunk.startOffset, end: chunk.endOffset, text: chunk.text, vector: chunk.vector)
     }
 }

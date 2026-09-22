@@ -12,7 +12,8 @@ struct SettingsView: View {
     @State private var systemPrompt: String
     @State private var chunkSize: Int
     @State private var chunkOverlap: Int
-    @State private var embeddingsEnabled: Bool
+    @State private var answerSource: AnswerSource?
+    @State private var embeddingSource: EmbeddingSource
     @State private var embeddingModel: String
     @State private var rootPath: String
     @State private var rootBookmark: Data?
@@ -27,8 +28,9 @@ struct SettingsView: View {
         _systemPrompt = State(initialValue: llm.systemPrompt)
         _chunkSize = State(initialValue: index.chunkSize)
         _chunkOverlap = State(initialValue: index.chunkOverlap)
-        _embeddingsEnabled = State(initialValue: index.embeddingsEnabled)
-        _embeddingModel = State(initialValue: index.embeddingModel)
+        _answerSource = State(initialValue: llm.answerSourceChoice)
+        _embeddingSource = State(initialValue: llm.embeddingSource)
+        _embeddingModel = State(initialValue: llm.serverEmbeddingModel)
         _rootPath = State(initialValue: app.pkmRootPath)
         _rootBookmark = State(initialValue: app.pkmRootBookmark)
     }
@@ -36,14 +38,13 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             Form {
+                AnswerSourceSection(answerSource: $answerSource, embeddingSource: $embeddingSource, embeddingModel: $embeddingModel)
                 LLMSettingsSection(baseURL: $baseURL, token: $token, model: $model, systemPrompt: $systemPrompt)
                 IndexSettingsSection(
                     rootPath: $rootPath,
                     rootBookmark: $rootBookmark,
                     chunkSize: $chunkSize,
-                    chunkOverlap: $chunkOverlap,
-                    embeddingsEnabled: $embeddingsEnabled,
-                    embeddingModel: $embeddingModel
+                    chunkOverlap: $chunkOverlap
                 )
             }
             .formStyle(.grouped)
@@ -69,12 +70,49 @@ struct SettingsView: View {
         llm.systemPrompt = systemPrompt
         indexSettings.chunkSize = chunkSize
         indexSettings.chunkOverlap = chunkOverlap
-        indexSettings.embeddingsEnabled = embeddingsEnabled
-        indexSettings.embeddingModel = embeddingModel
+        let embeddingChanged = llm.embeddingSource != embeddingSource || llm.serverEmbeddingModel != embeddingModel
+        llm.answerSourceChoice = answerSource
+        llm.embeddingSource = embeddingSource
+        llm.serverEmbeddingModel = embeddingModel
         appState.pkmRootPath = rootPath
         appState.pkmRootBookmark = rootBookmark
         appState.updateStats()
         appState.showNotification("Settings saved", type: .success)
+        if embeddingChanged {
+            Task { await DocumentIndexer.shared.loadVectorIndex() }
+        }
+    }
+}
+
+struct AnswerSourceSection: View {
+    @Binding var answerSource: AnswerSource?
+    @Binding var embeddingSource: EmbeddingSource
+    @Binding var embeddingModel: String
+
+    private let llm = LLMService.shared
+
+    var body: some View {
+        Section {
+            Picker("Answer with", selection: $answerSource) {
+                Text("Automatic (Apple Intelligence when available)").tag(AnswerSource?.none)
+                ForEach(AnswerSource.allCases, id: \.self) { Text($0.label).tag(AnswerSource?.some($0)) }
+            }
+            Label(llm.appleModelStatus.message, systemImage: llm.appleModelStatus.isAvailable ? "checkmark.circle" : "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Embeddings", selection: $embeddingSource) {
+                ForEach(EmbeddingSource.allCases, id: \.self) { Text($0.label).tag($0) }
+            }
+            if embeddingSource == .server {
+                TextField("Server embedding model", text: $embeddingModel, prompt: Text("nomic-embed-text"))
+                    .textFieldStyle(.roundedBorder)
+            }
+        } header: {
+            Text("Intelligence")
+        } footer: {
+            Text("On-device embeddings need no server and download a small model on first use. Changing the embedding source re-embeds files the next time they are indexed.")
+        }
     }
 }
 
@@ -134,7 +172,7 @@ struct LLMSettingsSection: View {
                     .controlSize(.small)
             }
         } header: {
-            Text("Model")
+            Text("Server")
         } footer: {
             Text("Any OpenAI-compatible server works: Ollama at http://localhost:11434/v1, LM Studio, LiteLLM or OpenAI itself.")
         }
@@ -162,8 +200,6 @@ struct IndexSettingsSection: View {
     @Binding var rootBookmark: Data?
     @Binding var chunkSize: Int
     @Binding var chunkOverlap: Int
-    @Binding var embeddingsEnabled: Bool
-    @Binding var embeddingModel: String
 
     private let appState = AppState.shared
     private let progress = IndexProgress.shared
@@ -182,11 +218,6 @@ struct IndexSettingsSection: View {
 
             Stepper("Chunk size: \(chunkSize) characters", value: $chunkSize, in: 100...5000, step: 100)
             Stepper("Chunk overlap: \(chunkOverlap) characters", value: $chunkOverlap, in: 0...1000, step: 50)
-
-            Toggle("Generate embeddings while indexing", isOn: $embeddingsEnabled)
-            TextField("Embedding model", text: $embeddingModel, prompt: Text("text-embedding-3-small"))
-                .textFieldStyle(.roundedBorder)
-                .disabled(!embeddingsEnabled)
 
             HStack {
                 if progress.isIndexing {
@@ -210,7 +241,7 @@ struct IndexSettingsSection: View {
         } header: {
             Text("Library and indexing")
         } footer: {
-            Text("Embeddings are off by default. Vector search is not used yet, and remote embeddings cost time and, on paid services, money. Indexing uses the saved library folder.")
+            Text("Chunks are whole sentences packed to about the chunk size. Indexing uses the saved library folder and re-embeds files whose embeddings are missing or from another model.")
         }
     }
 

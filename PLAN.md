@@ -19,17 +19,18 @@ Fix what is broken before adding anything.
 - [x] Chat history moves out of `UserDefaults` into SwiftData; unbounded growth stops.
 - [x] Remove `Dido.dmg` from git, ignore `*.dmg`, rewrite the README to match the code.
 
-## Phase 2: Local-first AI
+## Phase 2: Local-first AI (done 2026-09-22)
 
-- [ ] `EmbeddingProvider` protocol: on-device `NLContextualEmbedding` (default) and OpenAI-compatible
+- [x] `EmbeddingProvider` protocol: on-device `NLContextualEmbedding` (default) and OpenAI-compatible
       `/embeddings` with the Authorization header and a configurable model.
-- [ ] Each document records the embedding model and dimension so vectors are never mixed.
-- [ ] `LLMProvider` protocol: Apple Foundation Models on macOS 26 (default when available) and
+- [x] Each document records the embedding model and dimension so vectors are never mixed.
+- [x] `LLMProvider` protocol: Apple Foundation Models on macOS 26 (default when available) and
       OpenAI-compatible chat completions (Ollama or OpenAI). Availability shown in the status bar.
-- [ ] Sentence-aware chunking with `NLTokenizer`, sized for the local model's context window.
-- [ ] Real retrieval: in-memory vector index built from SwiftData at launch, batch cosine via
+- [x] Sentence-aware chunking with `NLTokenizer`, sized for the local model's context window.
+- [x] Real retrieval: in-memory vector index built from SwiftData at launch, batch cosine via
       Accelerate, top-k with a score threshold, plus keyword boosting.
-- [ ] Citations: chunks carry path and offsets; answers cite `[n]`; a sources list opens the file.
+- [x] Citations: chunks carry path and offsets; answers cite `[n]`; a sources list opens the file.
+- [ ] Open a cited passage at its offset in the preview pane (needs the Phase 3 preview).
 
 ## Phase 3: Knowledge scan
 

@@ -35,6 +35,7 @@ with an LLM. Not an HPE project: keep the native macOS look and feel, not HPE br
 - **Formats:** md, txt and code, pdf, rtf stay native. docx, pptx, xlsx and epub go through
   `markitdown` via `uvx`, located on PATH with a configurable override.
 - **Dependencies:** a Markdown rendering package is allowed. Ask before adding anything else.
-- **Retrieval:** real top-k vector search with citations, never whole-file dumps into the prompt.
+- **Retrieval:** top-k vector search with citations; a scope smaller than the model's context budget is sent whole, in order.
+- **Apple Intelligence** is the default answer source when available; the on-device model has a small context window, so its budget is kept around 7,000 characters.
 
 See `PLAN.md` for the roadmap and what is done.

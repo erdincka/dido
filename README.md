@@ -14,15 +14,16 @@ Personal, non-commercial use only. Not an HPE product.
   `uv` is installed.
 - Indexes files on demand, or a whole folder from the context menu or Settings, with progress and
   cancel. Indexed text lives in a SwiftData store under `~/Library/Application Support/Dido`.
-- Talks to any OpenAI-compatible chat server: Ollama (the default, at
-  `http://localhost:11434/v1`), LM Studio, LiteLLM or OpenAI. Tokens are stored in the Keychain.
-- Sends page images to vision-capable models for PDFs and images.
+- Answers with Apple Intelligence on macOS 26 when it is available, otherwise with any
+  OpenAI-compatible chat server: Ollama (the default, at `http://localhost:11434/v1`), LM Studio,
+  LiteLLM or OpenAI. Tokens are stored in the Keychain.
+- Embeds every passage on device with Apple's contextual embedding model (no server needed), or
+  through a server's `/embeddings` endpoint if you prefer.
+- Finds the passages relevant to each question with vector search plus a keyword boost, sends
+  small files whole, and cites passages as [1], [2] with a clickable sources row under each answer.
+- Sends page images to vision-capable server models for PDFs and images.
 - Renders replies as Markdown; copy or delete any message; chat history is kept per file or
   folder, capped at 200 messages each.
-
-Embeddings can be generated while indexing but are off by default: retrieval over them is the next
-item on the roadmap (see `PLAN.md`), so today the model receives the file's text, or the
-first-level text files of a folder, up to a fixed size.
 
 ## Requirements
 

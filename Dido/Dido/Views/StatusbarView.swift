@@ -3,12 +3,14 @@ import SwiftUI
 struct StatusbarView: View {
     private let appState = AppState.shared
     private let progress = IndexProgress.shared
+    private let llm = LLMService.shared
 
     var body: some View {
         HStack {
             HStack(spacing: 12) {
-                Label(appState.isLocalModel ? "Local API" : "Remote API",
-                      systemImage: appState.isLocalModel ? "laptopcomputer" : "network")
+                Label(llm.answerProviderName,
+                      systemImage: llm.effectiveAnswerSource == .appleIntelligence || appState.isLocalModel ? "laptopcomputer" : "network")
+                    .lineLimit(1)
 
                 Divider().frame(height: 12)
 
@@ -23,7 +25,7 @@ struct StatusbarView: View {
                     .buttonStyle(.plain)
                     .help("Cancel indexing")
                 } else {
-                    Text("\(appState.indexedCount) documents indexed")
+                    Text("\(appState.indexedCount) documents · \(progress.vectorCount) passages")
                     Text("(\(appState.indexSize))")
                 }
             }
