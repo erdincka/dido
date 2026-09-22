@@ -11,6 +11,12 @@ struct LibrarySidebarView: View {
     @State private var isLoadingRoot = false
     @State private var rootError: String?
 
+    /// Collapsed state survives relaunches; the library stays open while a search is active.
+    @AppStorage("sidebarRecentsExpanded") private var recentsExpanded = true
+    @AppStorage("sidebarLibraryExpanded") private var libraryExpanded = true
+
+    private var isSearching: Bool { !appState.searchText.isEmpty }
+
     var body: some View {
         List {
             Section {
@@ -25,22 +31,22 @@ struct LibrarySidebarView: View {
                 .background(RoundedRectangle(cornerRadius: 5).fill(appState.activeItem?.isLibrary == true && !appState.showingDashboard ? Color.accentColor.opacity(0.15) : .clear))
             }
 
-            Section("Library") {
-                libraryRows
-            }
-
-            if !appState.searchText.isEmpty && !passageResults.isEmpty {
-                Section("Passages") {
-                    ForEach(passageResults, id: \.chunkID) { entry in
-                        PassageResultRow(entry: entry, query: appState.searchText)
+            if !chatStore.recentThreads.isEmpty && !isSearching {
+                Section("Recent chats", isExpanded: $recentsExpanded) {
+                    ForEach(chatStore.recentThreads.prefix(12), id: \.id) { thread in
+                        RecentThreadRow(thread: thread)
                     }
                 }
             }
 
-            if !chatStore.recentThreads.isEmpty {
-                Section("Recent chats") {
-                    ForEach(chatStore.recentThreads.prefix(12), id: \.id) { thread in
-                        RecentThreadRow(thread: thread)
+            Section("Library", isExpanded: isSearching ? .constant(true) : $libraryExpanded) {
+                libraryRows
+            }
+
+            if isSearching && !passageResults.isEmpty {
+                Section("Passages") {
+                    ForEach(passageResults, id: \.chunkID) { entry in
+                        PassageResultRow(entry: entry, query: appState.searchText)
                     }
                 }
             }

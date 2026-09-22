@@ -8,7 +8,8 @@ Personal, non-commercial use only. Not an HPE product.
 
 ## What it does
 
-- Browses a library folder in a sidebar, loading folders as you expand them. The search field
+- Browses a library folder in a sidebar, loading folders as you expand them. Recent chats sit
+  above the library, and both sections collapse and stay collapsed between launches. The search field
   matches file names and file contents, and a passage result opens the file with that passage
   highlighted.
 - Indexes the whole library in the background at launch and watches it for changes, so new,
