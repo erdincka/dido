@@ -53,7 +53,9 @@ Fix what is broken before adding anything.
 
 Ideas not yet scheduled.
 
-- [ ] Highlight the exact cited range inside rendered Markdown and PDF pages.
+- [x] Highlight the exact cited range in text files and PDF pages (2026-09-23).
 - [ ] Per-tab sizing of the Settings window.
 - [ ] Signing and notarisation, if the app is ever shared beyond this Mac.
-- [ ] A "why this answer" view showing the retrieved passages and their scores.
+- [x] A "why this answer" view showing the retrieved passages and their scores (2026-09-23).
+- [ ] Highlight the cited range inside *rendered* Markdown, not only the raw text.
+- [ ] Show the on-device index load time in the dashboard for large libraries.

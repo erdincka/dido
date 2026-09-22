@@ -40,6 +40,7 @@ actor DocumentIndexer {
     private var writer: IndexWriter?
     private var currentRun: Task<Void, Never>?
     private var indexLoaded = false
+    private var indexLoad: Task<Void, Never>?
     private let embeddingBatchSize = 16
 
     private init() {}
@@ -58,12 +59,17 @@ actor DocumentIndexer {
         await indexWriter()?.isIndexed(path: path) ?? false
     }
 
-    /// True when the file has been indexed with the current embedding model since it was last modified.
-    func isCurrent(url: URL, embeddingModel: String) async -> Bool {
-        guard let existing = await indexWriter()?.existingDocument(at: url.path), existing.isIndexed else { return false }
+    enum Freshness: Sendable { case current, stale, missing }
+
+    /// Whether the file's index is usable as is, usable but out of date, or absent.
+    func freshness(of url: URL, embeddingModel: String, chunkProfile: String) async -> Freshness {
+        guard let existing = await indexWriter()?.existingDocument(at: url.path), existing.isIndexed else { return .missing }
         let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
-        return existing.dateIndexed >= modified && existing.embeddingModel == embeddingModel
+        let current = existing.dateIndexed >= modified && existing.embeddingModel == embeddingModel && existing.chunkProfile == chunkProfile
+        return current ? .current : .stale
     }
+
+    var isRunning: Bool { currentRun != nil }
 
     func textChunks(for url: URL) async -> [String] {
         await indexWriter()?.textChunks(for: url.path) ?? []
@@ -73,15 +79,29 @@ actor DocumentIndexer {
         await indexWriter()?.passages(for: url.path) ?? []
     }
 
-    /// Loads every chunk embedded with the current model into the in-memory vector index.
+    /// Loads every chunk embedded with the current model into the in-memory vector index. Concurrent callers share one load.
     func loadVectorIndex() async {
+        if let indexLoad {
+            await indexLoad.value
+            return
+        }
+        let load = Task { await self.performLoad() }
+        indexLoad = load
+        await load.value
+        indexLoad = nil
+    }
+
+    private func performLoad() async {
         let provider = await LLMService.shared.makeEmbeddingProvider()
         guard let writer = await indexWriter() else { return }
+        let started = Date()
         let entries = await writer.entries(forModel: provider.identifier)
         await VectorIndex.shared.replaceAll(entries, model: provider.identifier)
         await IndexProgress.shared.setVectorCount(entries.count)
         indexLoaded = true
-        logger.notice("Vector index loaded: \(entries.count) chunks for \(provider.identifier)")
+        let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
+        logger.notice("Vector index loaded: \(entries.count) chunks for \(provider.identifier) in \(seconds)s")
+        DebugLog.write("vector index: \(entries.count) chunks loaded in \(seconds)s")
     }
 
     /// Loads the index once, so a question asked right after launch still sees every passage.
@@ -217,7 +237,7 @@ actor DocumentIndexer {
         let filename = url.lastPathComponent
 
         func record(_ status: IndexStatus, detail: String? = nil) async {
-            _ = try? await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: status, detail: detail, embeddingModel: nil, chunks: []))
+            _ = try? await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: status, detail: detail, embeddingModel: nil, chunkProfile: nil, chunks: []))
             await VectorIndex.shared.remove(path: path)
         }
 
@@ -228,7 +248,7 @@ actor DocumentIndexer {
 
         let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
         if let existing = await writer.existingDocument(at: path), existing.isIndexed, existing.dateIndexed >= modified,
-           existing.embeddingModel == provider.identifier || !embeddingsAvailable {
+           existing.chunkProfile == chunker.profile, existing.embeddingModel == provider.identifier || !embeddingsAvailable {
             return false
         }
 
@@ -270,7 +290,7 @@ actor DocumentIndexer {
 
         do {
             let entries = try await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: .indexed, detail: nil,
-                                                             embeddingModel: embedded ? provider.identifier : nil, chunks: chunks))
+                                                             embeddingModel: embedded ? provider.identifier : nil, chunkProfile: chunker.profile, chunks: chunks))
             if embedded {
                 await VectorIndex.shared.replace(path: path, with: entries, model: provider.identifier)
             } else {

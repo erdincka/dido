@@ -26,7 +26,10 @@ Personal, non-commercial use only. Not an HPE product.
 - Finds the passages relevant to each question with vector search plus a keyword boost, sends
   small scopes whole, and cites passages as [1], [2]. Each citation and the sources row under an
   answer open a preview pane showing the passage highlighted among its neighbours, or the
-  document itself (Markdown, PDF with the passage selected, images, or Quick Look).
+  document itself with the exact cited range highlighted (text and Markdown) or selected (PDF).
+- "Why this answer" under every reply shows which model answered, the scope, whether the scope
+  was sent whole or ranked, every passage that was sent with its similarity score, and which of
+  them the reply cited.
 - Sends page images to vision-capable server models for PDFs and images.
 - Renders replies as Markdown; copy or delete any message; chat history is kept per file, folder
   or library, capped at 200 messages each.

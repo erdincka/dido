@@ -36,12 +36,14 @@ final class QuickAskModel {
         task = Task { [self] in
             var failure: String?
             var citations: [Citation] = []
+            var details: AnswerDetails?
             do {
                 let llm = LLMService.shared
                 let provider = llm.makeAnswerProvider()
                 DebugLog.write("quick ask: provider \(provider.name)")
                 let context = await ContextBuilder().build(for: item, question: text, budget: provider.contextBudget, includeImages: false)
                 citations = context.citations
+                details = context.details(provider: provider.name, scope: item.name)
                 DebugLog.write("quick ask: \(citations.count) passages")
                 for try await token in llm.streamAnswer(question: text, history: history, context: context) {
                     self.answer += token
@@ -50,7 +52,7 @@ final class QuickAskModel {
                 if !Task.isCancelled { failure = error.localizedDescription }
             }
             DebugLog.write("quick ask: finished, failure=\(failure ?? "none"), answer=\(self.answer.count) chars")
-            self.finish(failure: failure, citations: citations, item: item)
+            self.finish(failure: failure, citations: citations, details: details, item: item)
         }
     }
 
@@ -58,13 +60,13 @@ final class QuickAskModel {
         task?.cancel()
     }
 
-    private func finish(failure: String?, citations: [Citation], item: SelectedItem) {
+    private func finish(failure: String?, citations: [Citation], details: AnswerDetails?, item: SelectedItem) {
         if let failure {
             error = failure
             logger.error("Quick ask failed: \(failure)")
         }
         if !answer.isEmpty {
-            let reply = ChatMessage(role: .assistant, content: answer, sources: citations)
+            let reply = ChatMessage(role: .assistant, content: answer, sources: citations, details: details)
             ChatStore.shared.append(reply, to: item)
             sources = citations
         }

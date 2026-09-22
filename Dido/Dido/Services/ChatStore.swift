@@ -33,7 +33,8 @@ final class ChatStore {
             .sorted { $0.createdAt < $1.createdAt }
             .map { record in
                 let sources = record.sourcesJSON.flatMap { try? JSONDecoder().decode([Citation].self, from: Data($0.utf8)) } ?? []
-                return ChatMessage(id: record.id, role: ChatRole(rawValue: record.roleRaw) ?? .assistant, content: record.content, createdAt: record.createdAt, sources: sources)
+                let details = record.detailsJSON.flatMap { try? JSONDecoder().decode(AnswerDetails.self, from: Data($0.utf8)) }
+                return ChatMessage(id: record.id, role: ChatRole(rawValue: record.roleRaw) ?? .assistant, content: record.content, createdAt: record.createdAt, sources: sources, details: details)
             }
     }
 
@@ -42,6 +43,9 @@ final class ChatStore {
         let record = ChatMessageRecord(id: message.id, role: message.role, content: message.content, createdAt: message.createdAt)
         if !message.sources.isEmpty, let data = try? JSONEncoder().encode(message.sources) {
             record.sourcesJSON = String(decoding: data, as: UTF8.self)
+        }
+        if let details = message.details, let data = try? JSONEncoder().encode(details) {
+            record.detailsJSON = String(decoding: data, as: UTF8.self)
         }
         record.thread = thread
         context.insert(record)

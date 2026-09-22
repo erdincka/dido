@@ -10,6 +10,7 @@ struct MessageRow: View {
     var onOpenSource: ((Citation) -> Void)? = nil
 
     @State private var isHovered = false
+    @State private var showWhy = false
 
     private var isUser: Bool { message.role == .user }
 
@@ -32,14 +33,20 @@ struct MessageRow: View {
                 if !message.sources.isEmpty {
                     SourcesList(sources: message.sources, onOpen: onOpenSource)
                 }
+                if showWhy, let details = message.details {
+                    WhyThisAnswerView(details: details, cited: Set(message.sources.map(\.index)), onOpen: onOpenSource)
+                }
                 if !isStreaming {
-                    actions.opacity(isHovered ? 1 : 0)
+                    actions.opacity(isHovered || showWhy ? 1 : 0)
                 }
             }
 
             if !isUser { Spacer(minLength: 60) }
         }
         .onHover { isHovered = $0 }
+        .onAppear {
+            if AppState.shared.debugExpandWhy, message.details != nil { showWhy = true }
+        }
     }
 
     @ViewBuilder
@@ -90,6 +97,12 @@ struct MessageRow: View {
                 Button(action: onDelete) { Image(systemName: "trash") }
                     .help("Delete")
             }
+            if message.details != nil {
+                Button { withAnimation(.easeInOut(duration: 0.2)) { showWhy.toggle() } } label: {
+                    Image(systemName: showWhy ? "questionmark.circle.fill" : "questionmark.circle")
+                }
+                .help(showWhy ? "Hide why this answer" : "Why this answer")
+            }
         }
         .buttonStyle(.plain)
         .font(.system(size: 11))
@@ -110,6 +123,70 @@ struct MessageRow: View {
             output.replaceSubrange(whole, with: "\\[" + links + "\\]")
         }
         return output
+    }
+}
+
+/// How the context was chosen: provider, scope, selection mode and every passage with its similarity score.
+struct WhyThisAnswerView: View {
+    let details: AnswerDetails
+    let cited: Set<Int>
+    var onOpen: ((Citation) -> Void)?
+
+    private var summary: String {
+        let chars = details.contextCharacters.formatted()
+        switch details.mode {
+        case .whole:
+            return "Answered by \(details.provider). Scope: \(details.scope). All \(details.passages.count) passages fitted the model's budget and were sent in document order (\(chars) characters)."
+        case .search:
+            return "Answered by \(details.provider). Scope: \(details.scope). \(details.candidates) passages were ranked by similarity to the question and the top \(details.passages.count) were sent (\(chars) characters). Scores are cosine similarity plus a small boost for passages containing the question's words."
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Why this answer", systemImage: "questionmark.circle")
+                .font(.caption.weight(.semibold))
+            Text(summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(spacing: 2) {
+                ForEach(details.passages, id: \.index) { passage in
+                    Button { onOpen?(passage) } label: {
+                        HStack(spacing: 8) {
+                            Text("\(passage.index)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(cited.contains(passage.index) ? .blue : .secondary)
+                                .frame(width: 22, alignment: .trailing)
+                            Text(passage.filename).font(.caption).lineLimit(1)
+                            Text("part \(passage.ordinal + 1)").font(.caption2).foregroundStyle(.secondary)
+                            Spacer()
+                            if details.mode == .search {
+                                ProgressView(value: Double(min(max(passage.score, 0), 1)))
+                                    .progressViewStyle(.linear)
+                                    .frame(width: 70)
+                                Text(String(format: "%.2f", passage.score))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 34, alignment: .trailing)
+                            }
+                            Image(systemName: cited.contains(passage.index) ? "quote.bubble.fill" : "quote.bubble")
+                                .font(.caption2)
+                                .foregroundStyle(cited.contains(passage.index) ? .blue : .secondary.opacity(0.4))
+                                .help(cited.contains(passage.index) ? "Cited in the answer" : "Sent but not cited")
+                        }
+                        .padding(.vertical, 3)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(10)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 1))
+        .frame(maxWidth: 640, alignment: .leading)
     }
 }
 

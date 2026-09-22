@@ -36,6 +36,8 @@ final class Document {
     /// Identifier of the embedding model used for this document's chunks, nil when none were generated.
     var embeddingModel: String?
     var embeddingDimension: Int = 0
+    /// The chunking settings used, so changed settings re-chunk the file on the next scan.
+    var chunkProfile: String?
 
     @Relationship(deleteRule: .cascade, inverse: \DocumentChunk.document)
     var chunks: [DocumentChunk] = []
@@ -119,6 +121,8 @@ final class ChatMessageRecord {
     var createdAt: Date
     /// JSON-encoded `[Citation]` for assistant replies.
     var sourcesJSON: String?
+    /// JSON-encoded `AnswerDetails`: how the context for this reply was chosen.
+    var detailsJSON: String?
 
     var thread: ChatThread?
 

@@ -6,10 +6,17 @@ import NaturalLanguage
 final class IndexSettings {
     static let shared = IndexSettings()
 
-    var chunkSize: Int = UserDefaults.standard.object(forKey: "chunkSize") as? Int ?? 600 {
+    /// About 900 characters (roughly 180 tokens) keeps a whole idea in one passage while staying well inside the
+    /// on-device embedding model's window; the overlap carries the last sentence or two across the boundary.
+    static let defaultChunkSize = 900
+    static let defaultChunkOverlap = 150
+    /// Defaults from earlier versions, replaced on first launch so existing installs pick up the new ones.
+    private static let legacyDefaults: [(Int, Int)] = [(500, 50), (600, 80)]
+
+    var chunkSize: Int = UserDefaults.standard.object(forKey: "chunkSize") as? Int ?? IndexSettings.defaultChunkSize {
         didSet { UserDefaults.standard.set(chunkSize, forKey: "chunkSize") }
     }
-    var chunkOverlap: Int = UserDefaults.standard.object(forKey: "chunkOverlap") as? Int ?? 80 {
+    var chunkOverlap: Int = UserDefaults.standard.object(forKey: "chunkOverlap") as? Int ?? IndexSettings.defaultChunkOverlap {
         didSet { UserDefaults.standard.set(chunkOverlap, forKey: "chunkOverlap") }
     }
     /// Index the whole library in the background at launch and keep it current with a file watcher.
@@ -25,7 +32,12 @@ final class IndexSettings {
         didSet { UserDefaults.standard.set(converterPath, forKey: "converterPath") }
     }
 
-    private init() {}
+    private init() {
+        if Self.legacyDefaults.contains(where: { $0 == (chunkSize, chunkOverlap) }) {
+            chunkSize = Self.defaultChunkSize
+            chunkOverlap = Self.defaultChunkOverlap
+        }
+    }
 
     var chunker: TextChunker {
         TextChunker(chunkSize: chunkSize, chunkOverlap: chunkOverlap)
@@ -48,6 +60,9 @@ struct TextChunk: Sendable {
 struct TextChunker: Sendable {
     let chunkSize: Int
     let chunkOverlap: Int
+
+    /// Stored with each document; a different profile means the file is chunked again on the next scan.
+    var profile: String { "sentences/\(chunkSize)/\(chunkOverlap)" }
 
     func chunk(_ text: String) -> [TextChunk] {
         let size = max(chunkSize, 100)

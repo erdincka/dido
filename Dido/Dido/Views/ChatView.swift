@@ -129,10 +129,12 @@ struct ChatView: View {
         generation = Task {
             var failure: String?
             var sources: [Citation] = []
+            var details: AnswerDetails?
             do {
                 let provider = llm.makeAnswerProvider()
                 let context = await ContextBuilder().build(for: selectedItem, question: question, budget: provider.contextBudget, includeImages: provider.supportsImages)
                 sources = context.citations
+                details = context.details(provider: provider.name, scope: selectedItem.name)
                 for try await token in llm.streamAnswer(question: question, history: history, context: context) {
                     streamingText += token
                 }
@@ -142,7 +144,7 @@ struct ChatView: View {
                     logger.error("Generation failed: \(error.localizedDescription)")
                 }
             }
-            finishGeneration(stopped: Task.isCancelled, failure: failure, sources: sources)
+            finishGeneration(stopped: Task.isCancelled, failure: failure, sources: sources, details: details)
         }
     }
 
@@ -170,7 +172,7 @@ struct ChatView: View {
         return numbers
     }
 
-    private func finishGeneration(stopped: Bool, failure: String?, sources: [Citation]) {
+    private func finishGeneration(stopped: Bool, failure: String?, sources: [Citation], details: AnswerDetails?) {
         var content = streamingText
         if let failure {
             content += (content.isEmpty ? "" : "\n\n") + "**Error:** \(failure)"
@@ -180,7 +182,7 @@ struct ChatView: View {
         if !content.isEmpty {
             let cited = Self.citedIndexes(in: content)
             let used = sources.filter { cited.contains($0.index) }
-            let reply = ChatMessage(role: .assistant, content: content, sources: used.isEmpty ? sources : used)
+            let reply = ChatMessage(role: .assistant, content: content, sources: used.isEmpty ? sources : used, details: details)
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 messages.append(reply)
             }

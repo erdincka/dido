@@ -6,6 +6,18 @@ struct ContentView: View {
     private let indexSettings = IndexSettings.shared
 
     var body: some View {
+        VStack(spacing: 0) {
+            splitView
+            StatusbarView()
+        }
+        .task { await DocumentIndexer.shared.loadVectorIndex() }
+        .task(id: appState.pkmRootBookmark ?? Data(appState.pkmRootPath.utf8)) {
+            let root = appState.activateRoot()
+            LibraryMonitor.shared.activate(root: root, autoIndex: indexSettings.autoIndex)
+        }
+    }
+
+    private var splitView: some View {
         NavigationSplitView {
             LibrarySidebarView()
                 .listStyle(.sidebar)
@@ -35,14 +47,6 @@ struct ContentView: View {
                 }
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: appState.notificationMessage)
-        }
-        .safeAreaInset(edge: .bottom) {
-            StatusbarView()
-        }
-        .task { await DocumentIndexer.shared.loadVectorIndex() }
-        .task(id: appState.pkmRootBookmark ?? Data(appState.pkmRootPath.utf8)) {
-            let root = appState.activateRoot()
-            LibraryMonitor.shared.activate(root: root, autoIndex: indexSettings.autoIndex)
         }
     }
 

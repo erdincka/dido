@@ -43,6 +43,8 @@ with an LLM. Not an HPE project: keep the native macOS look and feel, not HPE br
   `markitdown` via `uvx`, located on PATH with a configurable override.
 - **Dependencies:** a Markdown rendering package is allowed. Ask before adding anything else.
 - **Library scope:** the whole-library chat relies on the background index and never indexes on demand.
+- **Chunking:** whole sentences packed to about 900 characters with a 150-character overlap. The profile is stored on each document, so changing it re-chunks files on the next scan. Older stored defaults (500/50, 600/80) are migrated on launch.
+- **Default prompt:** `LLMService.defaultSystemPrompt`; a stored copy of an earlier default is replaced on launch, a user's own prompt is kept.
 - **Retrieval:** top-k vector search with citations; a scope smaller than the model's context budget is sent whole, in order.
 - **Settings** is a native Settings scene; open it with `SettingsLink` in views or `AppState.openSettings()` elsewhere, which performs the app menu's own ⌘, item because the selector differs between OS versions.
 - **Apple Intelligence** is the default answer source when available; the on-device model has a small context window, so its budget is kept around 7,000 characters.

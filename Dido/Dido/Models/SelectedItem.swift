@@ -18,6 +18,25 @@ struct Citation: Codable, Hashable, Sendable {
     var url: URL { URL(fileURLWithPath: path) }
 }
 
+/// How the context for an answer was assembled, shown in "Why this answer".
+struct AnswerDetails: Codable, Hashable, Sendable {
+    enum Mode: String, Codable, Sendable {
+        /// Every passage in the scope fitted the model's budget and was sent in document order.
+        case whole
+        /// The passages were ranked by similarity to the question and the best were sent.
+        case search
+    }
+
+    let provider: String
+    let scope: String
+    let mode: Mode
+    /// Passages that existed in the scope before selection.
+    let candidates: Int
+    let contextCharacters: Int
+    /// Every passage sent to the model, with its similarity score when `mode` is `.search`.
+    let passages: [Citation]
+}
+
 /// A chat message as shown in the UI. Persisted through `ChatStore`.
 struct ChatMessage: Identifiable, Hashable, Sendable {
     let id: UUID
@@ -25,13 +44,15 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     var content: String
     let createdAt: Date
     var sources: [Citation]
+    var details: AnswerDetails?
 
-    init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date(), sources: [Citation] = []) {
+    init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date(), sources: [Citation] = [], details: AnswerDetails? = nil) {
         self.id = id
         self.role = role
         self.content = content
         self.createdAt = createdAt
         self.sources = sources
+        self.details = details
     }
 }
 

@@ -9,6 +9,7 @@ struct IndexedFile: Sendable {
     let status: IndexStatus
     let detail: String?
     let embeddingModel: String?
+    let chunkProfile: String?
     let chunks: [IndexedChunk]
 }
 
@@ -34,6 +35,7 @@ struct ExistingDocument: Sendable {
     let dateIndexed: Date
     let isIndexed: Bool
     let embeddingModel: String?
+    let chunkProfile: String?
 }
 
 /// Background writer for the index. All SwiftData work for indexing happens here, off the main actor.
@@ -41,7 +43,7 @@ struct ExistingDocument: Sendable {
 actor IndexWriter {
     func existingDocument(at path: String) -> ExistingDocument? {
         guard let document = fetchDocument(path) else { return nil }
-        return ExistingDocument(id: document.persistentModelID, dateIndexed: document.dateIndexed, isIndexed: document.isIndexed, embeddingModel: document.embeddingModel)
+        return ExistingDocument(id: document.persistentModelID, dateIndexed: document.dateIndexed, isIndexed: document.isIndexed, embeddingModel: document.embeddingModel, chunkProfile: document.chunkProfile)
     }
 
     func isIndexed(path: String) -> Bool {
@@ -59,6 +61,7 @@ actor IndexWriter {
         let document = Document(filename: file.filename, path: file.path, type: file.type, status: file.status, detail: file.detail)
         document.embeddingModel = file.embeddingModel
         document.embeddingDimension = file.chunks.first?.vector.count ?? 0
+        document.chunkProfile = file.chunkProfile
         let chunks = file.chunks.map { DocumentChunk(ordinal: $0.ordinal, text: $0.text, vector: $0.vector, startOffset: $0.start, endOffset: $0.end) }
         document.chunks = chunks
         modelContext.insert(document)
@@ -108,10 +111,12 @@ actor IndexWriter {
 
     /// Every embedded chunk produced with `model`, for loading the vector index at launch.
     func entries(forModel model: String) -> [IndexEntry] {
-        let descriptor = FetchDescriptor<Document>(predicate: #Predicate { $0.isIndexed && $0.embeddingModel == model })
-        let documents = (try? modelContext.fetch(descriptor)) ?? []
-        return documents.flatMap { document in
-            document.chunks.compactMap { Self.entry(for: $0, in: document) }
+        var descriptor = FetchDescriptor<DocumentChunk>(predicate: #Predicate { $0.document?.embeddingModel == model && $0.document?.isIndexed == true })
+        descriptor.relationshipKeyPathsForPrefetching = [\.document]
+        let chunks = (try? modelContext.fetch(descriptor)) ?? []
+        return chunks.compactMap { chunk in
+            guard let document = chunk.document else { return nil }
+            return Self.entry(for: chunk, in: document)
         }
     }
 

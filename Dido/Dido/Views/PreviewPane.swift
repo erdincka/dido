@@ -34,21 +34,15 @@ struct PreviewPane: View {
                 if mode == .passage, let citation {
                     PassageView(passages: passages, highlighted: citation.ordinal)
                 } else {
-                    DocumentView(url: target, searchText: citation.flatMap { Self.searchSnippet(for: $0, in: passages) })
+                    DocumentView(url: target, passage: citation.flatMap { c in passages.first { $0.ordinal == c.ordinal } })
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task(id: citation) {
-            mode = citation == nil ? .document : .passage
+            mode = citation == nil || AppState.shared.debugPreviewMode == "document" ? .document : .passage
             passages = await DocumentIndexer.shared.passages(for: target)
         }
-    }
-
-    private static func searchSnippet(for citation: Citation, in passages: [Passage]) -> String? {
-        guard let passage = passages.first(where: { $0.ordinal == citation.ordinal }) else { return nil }
-        let words = passage.text.split(separator: " ").prefix(8).joined(separator: " ")
-        return words.isEmpty ? nil : words
     }
 }
 
@@ -83,16 +77,18 @@ struct PassageView: View {
     }
 }
 
-/// Renders the file itself: Markdown, plain text, images, PDF with a search highlight, or Quick Look.
+/// Renders the file itself: Markdown, plain text with the cited range highlighted, images, PDF with the
+/// cited range selected, or Quick Look.
 struct DocumentView: View {
     let url: URL
-    var searchText: String? = nil
+    /// The cited chunk; its offsets are exact for text files and PDFs with a text layer.
+    var passage: Passage? = nil
 
     private var ext: String { url.pathExtension.lowercased() }
 
     var body: some View {
         switch ext {
-        case "md", "markdown":
+        case _ where (ext == "md" || ext == "markdown") && passage == nil:
             ScrollView {
                 Markdown((try? String(contentsOf: url, encoding: .utf8)) ?? "")
                     .markdownTheme(.basic)
@@ -100,15 +96,9 @@ struct DocumentView: View {
                     .padding(16)
             }
         case _ where DocumentParser.plainTextExtensions.contains(ext):
-            ScrollView {
-                Text((try? String(contentsOf: url, encoding: .utf8)) ?? "")
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-            }
+            HighlightedTextView(text: (try? String(contentsOf: url, encoding: .utf8)) ?? "", passage: passage, monospaced: !["md", "markdown", "txt"].contains(ext))
         case "pdf":
-            PDFKitView(url: url, searchText: searchText)
+            PDFKitView(url: url, passage: passage)
         case _ where DocumentParser.imageExtensions.contains(ext):
             if let image = NSImage(contentsOf: url) {
                 ScrollView([.horizontal, .vertical]) {
@@ -123,9 +113,60 @@ struct DocumentView: View {
     }
 }
 
+/// The file's text with the cited range highlighted and scrolled into view.
+struct HighlightedTextView: View {
+    let text: String
+    let passage: Passage?
+    var monospaced = false
+
+    private var font: Font { monospaced ? .system(.body, design: .monospaced) : .body }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let passage, let (before, cited, after) = Self.split(text, passage: passage) {
+                        Text(before).font(font)
+                        Text(cited)
+                            .font(font)
+                            .padding(6)
+                            .background(Color.yellow.opacity(0.3))
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.orange.opacity(0.6)))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                            .id("cited")
+                        Text(after).font(font)
+                    } else {
+                        Text(text).font(font)
+                    }
+                }
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+            }
+            .onAppear { proxy.scrollTo("cited", anchor: .center) }
+            .onChange(of: passage) { _, _ in proxy.scrollTo("cited", anchor: .center) }
+        }
+    }
+
+    /// Splits on the passage's UTF-16 offsets; falls back to locating the passage text when offsets are stale.
+    private static func split(_ text: String, passage: Passage) -> (String, String, String)? {
+        let utf16 = text.utf16
+        if passage.end > passage.start, passage.end <= utf16.count,
+           let start = String.Index(utf16Offset: passage.start, in: text).samePosition(in: text),
+           let end = String.Index(utf16Offset: passage.end, in: text).samePosition(in: text),
+           text[start..<end].trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(String(passage.text.prefix(20))) {
+            return (String(text[..<start]), String(text[start..<end]), String(text[end...]))
+        }
+        if let range = text.range(of: passage.text) ?? text.range(of: String(passage.text.prefix(80))) {
+            return (String(text[..<range.lowerBound]), String(text[range]), String(text[range.upperBound...]))
+        }
+        return nil
+    }
+}
+
 struct PDFKitView: NSViewRepresentable {
     let url: URL
-    var searchText: String?
+    var passage: Passage?
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
@@ -138,12 +179,35 @@ struct PDFKitView: NSViewRepresentable {
         if view.document?.documentURL != url {
             view.document = PDFDocument(url: url)
         }
-        guard let document = view.document, let searchText, !searchText.isEmpty else { return }
-        let matches = document.findString(searchText, withOptions: [.caseInsensitive])
-        if let first = matches.first {
-            view.setCurrentSelection(first, animate: true)
-            view.go(to: first)
+        guard let document = view.document, let passage else { return }
+        if let selection = Self.selection(for: passage, in: document) {
+            view.setCurrentSelection(selection, animate: true)
+            view.go(to: selection)
         }
+    }
+
+    /// Maps the passage's offsets in the extracted text (pages joined by newlines) back onto page selections.
+    private static func selection(for passage: Passage, in document: PDFDocument) -> PDFSelection? {
+        var pageStart = 0
+        var combined: PDFSelection?
+        for index in 0..<document.pageCount {
+            guard let page = document.page(at: index) else { continue }
+            let length = (page.string ?? "").utf16.count
+            let pageEnd = pageStart + length
+            if passage.start < pageEnd && passage.end > pageStart {
+                let local = NSRange(location: max(passage.start, pageStart) - pageStart, length: min(passage.end, pageEnd) - max(passage.start, pageStart))
+                if local.length > 0, let selection = page.selection(for: local) {
+                    if let existing = combined { existing.add(selection) } else { combined = selection }
+                }
+            }
+            pageStart = pageEnd + 1 // the newline the parser inserts between pages
+            if pageStart > passage.end { break }
+        }
+        if combined == nil {
+            let words = passage.text.split(separator: " ").prefix(8).joined(separator: " ")
+            combined = document.findString(words, withOptions: [.caseInsensitive]).first
+        }
+        return combined
     }
 }
 

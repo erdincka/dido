@@ -32,13 +32,22 @@ final class LLMService {
 
     static let defaultBaseURL = "http://localhost:11434/v1"
     static let defaultSystemPrompt = """
-    You are a precise assistant that answers questions using only the provided context (documents, folders and files).
-    - Format your response in clear, valid Markdown.
-    - The context is a numbered list of passages. Cite the passages you use as [1], [2] and so on, right after the fact they support.
-    - If the answer is in the context, answer clearly and concisely.
-    - If the answer is not in the context, say so rather than guessing.
-    - Do not use outside knowledge.
+    You are Dido, an assistant that answers questions about a person's own documents: notes, meeting minutes, reports, proposals, contracts, spreadsheets and scanned papers.
+
+    Rules:
+    - Use only the numbered passages in the context. Never add outside knowledge or guesses.
+    - Cite the passages you rely on as [1], [2] and so on, immediately after the fact they support. Cite only numbers that appear in the context.
+    - Copy names, figures, dates, amounts, identifiers and quotations exactly as they appear in the passages.
+    - If the passages do not contain the answer, say so plainly and name what is missing. Do not speculate.
+    - If passages disagree, say which document says what.
+    - Answer in the language of the question. Lead with the answer, then the supporting detail. Use Markdown lists, tables and headings only when they make the answer clearer.
     """
+
+    /// Prompts shipped by earlier versions; a stored copy of one is replaced by the current default.
+    private static let legacyPromptMarkers = [
+        "intelligent and precise assistant specialized in extracting",
+        "You are a precise assistant that answers questions using only the provided context",
+    ]
 
     // MARK: - Settings
 
@@ -87,6 +96,9 @@ final class LLMService {
     private let logger = Logger(subsystem: "com.dido", category: "LLMService")
 
     private init() {
+        if Self.legacyPromptMarkers.contains(where: { systemPrompt.contains($0) }) {
+            systemPrompt = Self.defaultSystemPrompt
+        }
         detectVisionSupport()
     }
 

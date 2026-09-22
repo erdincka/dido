@@ -19,6 +19,9 @@ final class AppState {
     var searchText: String = ""
     var searchPresented: Bool = false
     var previewVisible: Bool = false
+    /// Debug launch flags: expand "Why this answer" on every reply, and choose the preview mode on open.
+    var debugExpandWhy = false
+    var debugPreviewMode: String?
 
     /// Keeps the sparkles item in the menu bar for quick questions.
     var showMenuBarExtra: Bool = UserDefaults.standard.object(forKey: "showMenuBarExtra") as? Bool ?? true {
