@@ -216,6 +216,10 @@ struct RecentThreadRow: View {
 
     private let appState = AppState.shared
     private let chatStore = ChatStore.shared
+    @State private var renaming = false
+    @State private var newName = ""
+
+    private var isActive: Bool { appState.activeItem?.id == thread.item.id && !appState.showingDashboard }
 
     var body: some View {
         HStack {
@@ -225,7 +229,10 @@ struct RecentThreadRow: View {
             } label: {
                 HStack {
                     Image(systemName: thread.isLibrary ? "books.vertical" : (thread.isDirectory ? "folder" : "bubble.left.and.bubble.right")).foregroundStyle(.secondary)
-                    Text(thread.name).lineLimit(1)
+                    Text(thread.displayName).lineLimit(1)
+                    if thread.isPinned {
+                        Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
+                    }
                     Spacer()
                 }
                 .contentShape(Rectangle())
@@ -240,8 +247,24 @@ struct RecentThreadRow: View {
             .buttonStyle(.plain)
             .help("Delete this chat")
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 5).fill(isActive ? Color.accentColor.opacity(0.15) : .clear))
         .contextMenu {
+            Button(thread.isPinned ? "Unpin" : "Pin to top") { chatStore.setPinned(thread, !thread.isPinned) }
+            Button("Rename…") {
+                newName = thread.displayName
+                renaming = true
+            }
+            Divider()
             Button("Delete chat") { withAnimation { chatStore.delete(thread) } }
+        }
+        .alert("Rename chat", isPresented: $renaming) {
+            TextField("Name", text: $newName)
+            Button("Rename") { chatStore.rename(thread, to: newName) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Leave the name empty to use the file or folder name again.")
         }
     }
 }

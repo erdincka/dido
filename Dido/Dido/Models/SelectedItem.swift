@@ -14,8 +14,14 @@ struct Citation: Codable, Hashable, Sendable {
     let start: Int
     let end: Int
     let score: Float
+    /// Last passage ordinal when several adjacent passages were merged into one extract.
+    var ordinalEnd: Int?
+    /// True when the full-text index found this passage (exact words), not only the vectors.
+    var matchedText: Bool?
 
     var url: URL { URL(fileURLWithPath: path) }
+    var lastOrdinal: Int { ordinalEnd ?? ordinal }
+    var partLabel: String { lastOrdinal > ordinal ? "parts \(ordinal + 1)–\(lastOrdinal + 1)" : "part \(ordinal + 1)" }
 }
 
 /// How the context for an answer was assembled, shown in "Why this answer".
@@ -35,6 +41,9 @@ struct AnswerDetails: Codable, Hashable, Sendable {
     let contextCharacters: Int
     /// Every passage sent to the model, with its similarity score when `mode` is `.search`.
     let passages: [Citation]
+    /// The standalone query used for retrieval when the question was rewritten from a follow-up.
+    var retrievalQuery: String?
+    var filter: String?
 }
 
 /// A chat message as shown in the UI. Persisted through `ChatStore`.

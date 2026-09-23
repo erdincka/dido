@@ -5,8 +5,11 @@ struct ChatHeaderView: View {
     let item: SelectedItem
     @Binding var previewURL: URL?
     @Binding var showPreview: Bool
+    @Binding var compareMode: Bool
 
     @State private var showInfo = false
+    @State private var fileTypes: [String] = []
+    @Bindable private var appState = AppState.shared
 
     private static let quickLookExtensions: Set<String> = ["pdf", "rtf", "md", "txt", "markdown", "csv", "json", "swift", "py", "js", "html", "css", "xml", "yaml", "jpg", "png", "jpeg", "docx", "pptx", "xlsx"]
 
@@ -23,14 +26,28 @@ struct ChatHeaderView: View {
                 Text(item.name)
                     .font(.headline)
                     .lineLimit(1)
-                Text(item.isLibrary ? "Every indexed file" : (item.isDirectory ? "Folder context" : "Document context"))
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer()
 
             HStack(spacing: 8) {
+                if item.isDirectory {
+                    filterMenu
+                }
+                if item.kind == .folder {
+                    Button { compareMode.toggle() } label: {
+                        Image(systemName: "rectangle.split.2x1")
+                            .foregroundStyle(compareMode ? Color.white : Color.primary)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(compareMode ? Color.accentColor : nil)
+                    .background(compareMode ? Color.accentColor.opacity(0.9) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                    .help(compareMode ? "Compare mode is on: each file is asked separately" : "Compare the files in this folder")
+                }
                 if !item.isDirectory {
                     Button { showPreview.toggle() } label: { Image(systemName: "sidebar.trailing") }
                         .buttonStyle(.bordered)
@@ -56,6 +73,50 @@ struct ChatHeaderView: View {
         }
         .padding()
         .background(.ultraThinMaterial)
+        .task(id: item.id) {
+            fileTypes = item.isDirectory ? await VectorIndex.shared.fileTypes(in: item.searchScope) : []
+        }
+    }
+
+    private var subtitle: String {
+        var text = item.isLibrary ? "Every indexed file" : (item.isDirectory ? "Folder context" : "Document context")
+        if compareMode { text += " · compare mode" }
+        if !appState.retrievalFilter.isEmpty { text += " · " + appState.retrievalFilter.summary }
+        return text
+    }
+
+    /// Narrows retrieval by file type and modification date for folder and library chats.
+    private var filterMenu: some View {
+        Menu {
+            Section("File types") {
+                ForEach(fileTypes, id: \.self) { type in
+                    Toggle("." + type, isOn: Binding(
+                        get: { appState.retrievalFilter.fileTypes.contains(type) },
+                        set: { on in
+                            if on { appState.retrievalFilter.fileTypes.insert(type) } else { appState.retrievalFilter.fileTypes.remove(type) }
+                        }
+                    ))
+                }
+            }
+            Section("Modified") {
+                Picker("Modified", selection: $appState.retrievalFilter.modifiedWithinDays) {
+                    Text("Any time").tag(Int?.none)
+                    Text("Last 7 days").tag(Int?.some(7))
+                    Text("Last 30 days").tag(Int?.some(30))
+                    Text("Last year").tag(Int?.some(365))
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+            Divider()
+            Button("Clear filter") { appState.retrievalFilter = RetrievalFilter() }
+                .disabled(appState.retrievalFilter.isEmpty)
+        } label: {
+            Image(systemName: appState.retrievalFilter.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 32)
+        .help("Filter which files may be searched")
     }
 
     private var fileIcon: String {

@@ -134,6 +134,24 @@ struct OpenAICompatibleClient: Sendable {
         return ordered.map { $0.element.embedding.map(Float.init) }
     }
 
+    private struct ChatResponse: Decodable {
+        struct Choice: Decodable { struct Message: Decodable { let content: String? }; let message: Message? }
+        let choices: [Choice]?
+    }
+
+    /// One non-streaming completion, for short helper calls such as rewriting a query.
+    func complete(model: String, messages: [APIMessage], timeout: TimeInterval = 30) async throws -> String {
+        var request = try request(path: "/chat/completions", timeout: timeout)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(ChatRequest(model: model, messages: messages, stream: false))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try await check(response) { data }
+        guard let decoded = try? JSONDecoder().decode(ChatResponse.self, from: data), let text = decoded.choices?.first?.message?.content else {
+            throw LLMServiceError.decodingError
+        }
+        return text
+    }
+
     /// Streams the assistant's reply token by token using server-sent events.
     func streamChat(model: String, messages: [APIMessage]) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in

@@ -44,6 +44,10 @@ struct GeneralSettingsTab: View {
             LibraryMonitor.shared.deactivate()
             LibraryMonitor.shared.activate(root: appState.activateRoot(), autoIndex: enabled)
         }
+        .onChange(of: indexSettings.excludePatterns) { _, _ in
+            LibraryMonitor.shared.deactivate()
+            LibraryMonitor.shared.activate(root: appState.activateRoot(), autoIndex: indexSettings.autoIndex)
+        }
     }
 
     private func chooseRoot() {
@@ -173,12 +177,25 @@ struct IndexSettingsTab: View {
                 Toggle("Recognise text in images and scanned PDFs (OCR)", isOn: $indexSettings.ocrEnabled)
                 TextField("Path to uvx (optional)", text: $indexSettings.converterPath, prompt: Text("/opt/homebrew/bin/uvx"))
                     .textFieldStyle(.roundedBorder)
+                Stepper("OCR at most \(indexSettings.ocrMaxPages) pages per scanned PDF", value: $indexSettings.ocrMaxPages, in: 5...500, step: 5)
+                Stepper("Skip files larger than \(indexSettings.maxFileSizeMB) MB", value: $indexSettings.maxFileSizeMB, in: 5...2000, step: 5)
                 Stepper("Chunk size: \(indexSettings.chunkSize) characters", value: $indexSettings.chunkSize, in: 100...5000, step: 100)
                 Stepper("Chunk overlap: \(indexSettings.chunkOverlap) characters", value: $indexSettings.chunkOverlap, in: 0...1000, step: 50)
             } header: {
                 Text("Extraction")
             } footer: {
-                Text("Office and EPUB files are converted with markitdown through uvx (brew install uv). OCR uses Apple's Vision framework and covers the first \(DocumentParser.maxOCRPages) pages of a scanned PDF. Chunk changes apply to files indexed from now on.")
+                Text("Office and EPUB files are converted with markitdown through uvx (brew install uv). OCR uses Apple's Vision framework. Chunk changes re-chunk files on the next scan.")
+            }
+
+            Section {
+                TextEditor(text: $indexSettings.excludePatterns)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(height: 70)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.2)))
+            } header: {
+                Text("Exclude")
+            } footer: {
+                Text("One glob pattern per line, matched against file names and paths relative to the library, for example `Archive/`, `*.log` or `Drafts/**`. A `.didoignore` file in the library root works the same way. Changes apply when the library is next activated or scanned.")
             }
 
             Section("Index") {

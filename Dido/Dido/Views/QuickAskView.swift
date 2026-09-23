@@ -41,12 +41,12 @@ final class QuickAskModel {
                 let llm = LLMService.shared
                 let provider = llm.makeAnswerProvider()
                 DebugLog.write("quick ask: provider \(provider.name)")
-                let context = await ContextBuilder().build(for: item, question: text, budget: provider.contextBudget, includeImages: false)
+                let context = await ContextBuilder().build(for: item, question: text, history: history, budget: provider.contextBudget, includeImages: false)
                 citations = context.citations
                 details = context.details(provider: provider.name, scope: item.name)
                 DebugLog.write("quick ask: \(citations.count) passages")
-                for try await token in llm.streamAnswer(question: text, history: history, context: context) {
-                    self.answer += token
+                for try await event in llm.streamAnswer(question: text, history: history, context: context) {
+                    if case .token(let token) = event { self.answer += token }
                 }
             } catch {
                 if !Task.isCancelled { failure = error.localizedDescription }

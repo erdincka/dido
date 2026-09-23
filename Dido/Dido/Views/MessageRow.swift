@@ -8,6 +8,10 @@ struct MessageRow: View {
     var onCopy: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var onOpenSource: ((Citation) -> Void)? = nil
+    var onRegenerate: (() -> Void)? = nil
+    var onEdit: (() -> Void)? = nil
+    var onExport: (() -> Void)? = nil
+    var onCopyWithSources: (() -> Void)? = nil
 
     @State private var isHovered = false
     @State private var showWhy = false
@@ -93,6 +97,22 @@ struct MessageRow: View {
                 Button(action: onCopy) { Image(systemName: "doc.on.doc") }
                     .help("Copy")
             }
+            if let onCopyWithSources {
+                Button(action: onCopyWithSources) { Image(systemName: "doc.on.clipboard") }
+                    .help("Copy with sources")
+            }
+            if let onExport {
+                Button(action: onExport) { Image(systemName: "square.and.arrow.up") }
+                    .help("Export as Markdown…")
+            }
+            if let onRegenerate {
+                Button(action: onRegenerate) { Image(systemName: "arrow.clockwise") }
+                    .help("Regenerate")
+            }
+            if let onEdit {
+                Button(action: onEdit) { Image(systemName: "pencil") }
+                    .help("Edit and send again")
+            }
             if let onDelete {
                 Button(action: onDelete) { Image(systemName: "trash") }
                     .help("Delete")
@@ -134,12 +154,16 @@ struct WhyThisAnswerView: View {
 
     private var summary: String {
         let chars = details.contextCharacters.formatted()
+        var text: String
         switch details.mode {
         case .whole:
-            return "Answered by \(details.provider). Scope: \(details.scope). All \(details.passages.count) passages fitted the model's budget and were sent in document order (\(chars) characters)."
+            text = "Answered by \(details.provider). Scope: \(details.scope). All \(details.passages.count) passages fitted the model's budget and were sent in document order (\(chars) characters)."
         case .search:
-            return "Answered by \(details.provider). Scope: \(details.scope). \(details.candidates) passages were ranked by similarity to the question and the top \(details.passages.count) were sent (\(chars) characters). Scores are cosine similarity plus a small boost for passages containing the question's words."
+            text = "Answered by \(details.provider). Scope: \(details.scope). \(details.candidates) passages were ranked by meaning (vectors) and by exact words (full text), fused by rank, and the top \(details.passages.count) extracts were sent (\(chars) characters). Scores are cosine similarity with small boosts for the question's words and recently modified files."
         }
+        if let query = details.retrievalQuery { text += " The follow-up was searched as: “\(query)”." }
+        if let filter = details.filter { text += " Filter: \(filter)." }
+        return text
     }
 
     var body: some View {
@@ -159,7 +183,10 @@ struct WhyThisAnswerView: View {
                                 .foregroundStyle(cited.contains(passage.index) ? .blue : .secondary)
                                 .frame(width: 22, alignment: .trailing)
                             Text(passage.filename).font(.caption).lineLimit(1)
-                            Text("part \(passage.ordinal + 1)").font(.caption2).foregroundStyle(.secondary)
+                            Text(passage.partLabel).font(.caption2).foregroundStyle(.secondary)
+                            if passage.matchedText == true {
+                                Image(systemName: "textformat.abc").font(.caption2).foregroundStyle(.secondary).help("Matched the question's words")
+                            }
                             Spacer()
                             if details.mode == .search {
                                 ProgressView(value: Double(min(max(passage.score, 0), 1)))
@@ -208,7 +235,7 @@ struct SourcesList: View {
                             Text(source.filename)
                                 .font(.caption2)
                                 .lineLimit(1)
-                            Text("part \(source.ordinal + 1)")
+                            Text(source.partLabel)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }

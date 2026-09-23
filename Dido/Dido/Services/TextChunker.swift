@@ -31,6 +31,18 @@ final class IndexSettings {
     var converterPath: String = UserDefaults.standard.string(forKey: "converterPath") ?? "" {
         didSet { UserDefaults.standard.set(converterPath, forKey: "converterPath") }
     }
+    /// Glob patterns (one per line) excluded from the sidebar and the index, in addition to `.didoignore`.
+    var excludePatterns: String = UserDefaults.standard.string(forKey: "excludePatterns") ?? "" {
+        didSet { UserDefaults.standard.set(excludePatterns, forKey: "excludePatterns") }
+    }
+    /// Files above this size are recorded as skipped instead of parsed.
+    var maxFileSizeMB: Int = UserDefaults.standard.object(forKey: "maxFileSizeMB") as? Int ?? 50 {
+        didSet { UserDefaults.standard.set(maxFileSizeMB, forKey: "maxFileSizeMB") }
+    }
+    /// Pages of a scanned PDF that are OCRed before giving up.
+    var ocrMaxPages: Int = UserDefaults.standard.object(forKey: "ocrMaxPages") as? Int ?? 40 {
+        didSet { UserDefaults.standard.set(ocrMaxPages, forKey: "ocrMaxPages") }
+    }
 
     private init() {
         if Self.legacyDefaults.contains(where: { $0 == (chunkSize, chunkOverlap) }) {
@@ -44,7 +56,7 @@ final class IndexSettings {
     }
 
     var parserOptions: ParserOptions {
-        ParserOptions(ocrEnabled: ocrEnabled, converterPath: converterPath.isEmpty ? nil : converterPath)
+        ParserOptions(ocrEnabled: ocrEnabled, ocrMaxPages: ocrMaxPages, converterPath: converterPath.isEmpty ? nil : converterPath)
     }
 }
 
@@ -53,16 +65,102 @@ struct TextChunk: Sendable {
     let text: String
     let start: Int
     let end: Int
+
+    func shifted(by offset: Int) -> TextChunk {
+        TextChunk(text: text, start: start + offset, end: end + offset)
+    }
+}
+
+/// How a document's text should be split.
+enum TextKind: Sendable {
+    case prose
+    /// Comma-separated values: the header row is repeated in every chunk.
+    case csv
+    /// Converter output that may contain Markdown tables: table rows keep their header, prose is chunked as usual.
+    case markdownWithTables
 }
 
 /// Packs whole sentences into chunks of roughly `chunkSize` characters with a sentence-aligned overlap.
-/// A single sentence longer than a chunk is split into character windows.
+/// A single sentence longer than a chunk is split into character windows. Tabular text is chunked by rows.
 struct TextChunker: Sendable {
     let chunkSize: Int
     let chunkOverlap: Int
 
     /// Stored with each document; a different profile means the file is chunked again on the next scan.
-    var profile: String { "sentences/\(chunkSize)/\(chunkOverlap)" }
+    var profile: String { "sentences+rows/\(chunkSize)/\(chunkOverlap)" }
+
+    func chunk(_ text: String, kind: TextKind) -> [TextChunk] {
+        switch kind {
+        case .prose:
+            return chunk(text)
+        case .csv:
+            let lines = Self.lines(of: text)
+            guard lines.count > 1 else { return chunk(text) }
+            return chunkRows(lines, headerCount: 1)
+        case .markdownWithTables:
+            return chunkMixed(text)
+        }
+    }
+
+    /// Rows grouped to about `chunkSize` characters, each group prefixed with the header rows.
+    private func chunkRows(_ lines: [(text: String, start: Int, end: Int)], headerCount: Int) -> [TextChunk] {
+        let header = lines.prefix(headerCount).map(\.text).joined(separator: "\n")
+        var chunks: [TextChunk] = []
+        var rows: [(text: String, start: Int, end: Int)] = []
+        var length = header.count
+        func flush() {
+            guard let first = rows.first, let last = rows.last else { return }
+            chunks.append(TextChunk(text: header + "\n" + rows.map(\.text).joined(separator: "\n"), start: first.start, end: last.end))
+            rows = []
+            length = header.count
+        }
+        for line in lines.dropFirst(headerCount) where !line.text.trimmingCharacters(in: .whitespaces).isEmpty {
+            if length + line.text.count > max(chunkSize, 100), !rows.isEmpty { flush() }
+            rows.append(line)
+            length += line.text.count + 1
+        }
+        flush()
+        return chunks
+    }
+
+    /// Splits converter output into table blocks (lines starting with `|`) and prose, chunking each appropriately.
+    private func chunkMixed(_ text: String) -> [TextChunk] {
+        let lines = Self.lines(of: text)
+        var chunks: [TextChunk] = []
+        var index = 0
+        while index < lines.count {
+            if lines[index].text.hasPrefix("|") {
+                var end = index
+                while end < lines.count, lines[end].text.hasPrefix("|") { end += 1 }
+                let block = Array(lines[index..<end])
+                let headerCount = block.count > 1 && block[1].text.contains("---") ? 2 : 1
+                chunks += block.count > headerCount ? chunkRows(block, headerCount: headerCount) : chunk(block.map(\.text).joined(separator: "\n")).map { $0.shifted(by: block[0].start) }
+                index = end
+            } else {
+                var end = index
+                while end < lines.count, !lines[end].text.hasPrefix("|") { end += 1 }
+                let block = lines[index..<end]
+                if let first = block.first {
+                    let prose = block.map(\.text).joined(separator: "\n")
+                    chunks += chunk(prose).map { $0.shifted(by: first.start) }
+                }
+                index = end
+            }
+        }
+        return chunks
+    }
+
+    /// Lines with their UTF-16 offsets.
+    private static func lines(of text: String) -> [(text: String, start: Int, end: Int)] {
+        var result: [(String, Int, Int)] = []
+        var offset = 0
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let length = line.utf16.count
+            result.append((String(line), offset, offset + length))
+            offset += length + 1
+        }
+        return result
+    }
 
     func chunk(_ text: String) -> [TextChunk] {
         let size = max(chunkSize, 100)

@@ -40,6 +40,9 @@ actor DocumentIndexer {
     private var writer: IndexWriter?
     private var currentRun: Task<Void, Never>?
     private var indexLoaded = false
+    /// Files that must be handled before the running scan continues, with the callers waiting for them.
+    private var priority: [URL] = []
+    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var indexLoad: Task<Void, Never>?
     private let embeddingBatchSize = 16
 
@@ -95,13 +98,21 @@ actor DocumentIndexer {
         let provider = await LLMService.shared.makeEmbeddingProvider()
         guard let writer = await indexWriter() else { return }
         let started = Date()
-        let entries = await writer.entries(forModel: provider.identifier)
-        await VectorIndex.shared.replaceAll(entries, model: provider.identifier)
-        await IndexProgress.shared.setVectorCount(entries.count)
+        var source = "file"
+        if await !VectorIndex.shared.load(expectedModel: provider.identifier) {
+            source = "store"
+            let entries = await writer.entries(forModel: provider.identifier)
+            await VectorIndex.shared.replaceAll(entries, model: provider.identifier)
+        }
+        let count = await VectorIndex.shared.count
+        if await FullTextIndex.shared.count == 0, count > 0 {
+            await FullTextIndex.shared.rebuild(from: VectorIndex.shared.entries(in: .all))
+        }
+        await IndexProgress.shared.setVectorCount(count)
         indexLoaded = true
         let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
-        logger.notice("Vector index loaded: \(entries.count) chunks for \(provider.identifier) in \(seconds)s")
-        DebugLog.write("vector index: \(entries.count) chunks loaded in \(seconds)s")
+        logger.notice("Vector index loaded from \(source): \(count) chunks for \(provider.identifier) in \(seconds)s")
+        DebugLog.write("vector index: \(count) chunks loaded from \(source) in \(seconds)s")
     }
 
     /// Loads the index once, so a question asked right after launch still sees every passage.
@@ -116,12 +127,14 @@ actor DocumentIndexer {
     func remove(path: String) async {
         try? await indexWriter()?.remove(path: path)
         await VectorIndex.shared.remove(path: path)
+        await FullTextIndex.shared.remove(path: path)
         await refreshCounts()
     }
 
     func remove(pathPrefix: String) async {
         try? await indexWriter()?.remove(pathPrefix: pathPrefix)
         await VectorIndex.shared.remove(pathPrefix: pathPrefix)
+        await FullTextIndex.shared.remove(pathPrefix: pathPrefix)
         await refreshCounts()
     }
 
@@ -129,6 +142,7 @@ actor DocumentIndexer {
         cancel()
         try? await indexWriter()?.removeAll()
         await VectorIndex.shared.removeAll()
+        await FullTextIndex.shared.removeAll()
         await refreshCounts()
     }
 
@@ -139,6 +153,7 @@ actor DocumentIndexer {
         for path in missing {
             try? await writer.remove(path: path)
             await VectorIndex.shared.remove(path: path)
+            await FullTextIndex.shared.remove(path: path)
         }
         await refreshCounts()
         return missing.count
@@ -150,6 +165,7 @@ actor DocumentIndexer {
         for path in paths {
             let url = URL(fileURLWithPath: path)
             if url.pathComponents.contains(where: { $0.hasPrefix(".") }) { continue }
+            if await FileSystemScanner.shared.isIgnored(url) { continue }
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) {
                 if isDirectory.boolValue || DocumentParser.supportedExtensions.contains(url.pathExtension.lowercased()) {
@@ -170,29 +186,63 @@ actor DocumentIndexer {
 
     // MARK: - Runs
 
-    /// Indexes a file or every file below a folder. Waits for any run already in progress.
+    enum RunReason: Sendable { case manual, background, onDemand }
+
+    /// Indexes a file or every file below a folder.
+    /// While a scan is running, the files are pushed to the front of its queue and this call returns when they are done.
     /// - Parameter quiet: suppresses the start and finish toasts (used for on-demand indexing during chat).
-    func index(_ url: URL, quiet: Bool = false) async {
-        while let running = currentRun {
-            await running.value
+    func index(_ url: URL, quiet: Bool = false, reason: RunReason? = nil) async {
+        if currentRun != nil {
+            let files = await FileSystemScanner.shared.regularFiles(under: url)
+            guard !files.isEmpty else { return }
+            for file in files.reversed() where !priority.contains(file) {
+                priority.insert(file, at: 0)
+            }
+            for file in files {
+                await withCheckedContinuation { continuation in
+                    if currentRun == nil {
+                        continuation.resume()
+                    } else {
+                        waiters[file.path, default: []].append(continuation)
+                    }
+                }
+            }
+            return
         }
-        let run = Task { await self.perform(url, quiet: quiet) }
+        let run = Task { await self.perform(url, quiet: quiet, reason: reason ?? (quiet ? .onDemand : .manual)) }
         currentRun = run
         await run.value
         currentRun = nil
+        resumeAllWaiters()
+    }
+
+    private func resumeWaiters(for path: String) {
+        for continuation in waiters.removeValue(forKey: path) ?? [] { continuation.resume() }
+    }
+
+    private func resumeAllWaiters() {
+        for continuations in waiters.values { for continuation in continuations { continuation.resume() } }
+        waiters.removeAll()
+    }
+
+    /// The next file to handle: a priority request first, otherwise the scan's own list.
+    private func nextFile(from files: inout ArraySlice<URL>) -> URL? {
+        if !priority.isEmpty { return priority.removeFirst() }
+        return files.popFirst()
     }
 
     func cancel() {
         currentRun?.cancel()
     }
 
-    private func perform(_ url: URL, quiet: Bool) async {
+    private func perform(_ url: URL, quiet: Bool, reason: RunReason) async {
         guard let writer = await indexWriter() else {
             await AppState.shared.showNotification("Indexing is unavailable because the database could not be opened.", type: .error)
             return
         }
         let chunker = await IndexSettings.shared.chunker
         let parserOptions = await IndexSettings.shared.parserOptions
+        let maxBytes = await Int64(IndexSettings.shared.maxFileSizeMB) * 1_048_576
         let provider = await LLMService.shared.makeEmbeddingProvider()
         let loadedModel = await VectorIndex.shared.modelIdentifier
         if !indexLoaded || loadedModel != provider.identifier {
@@ -208,48 +258,64 @@ actor DocumentIndexer {
 
         var embeddingsAvailable = true
         var stored = 0
-        for file in files {
+        var failed = 0
+        var remaining = files[...]
+        while let file = nextFile(from: &remaining) {
             if Task.isCancelled { break }
             await IndexProgress.shared.advance(to: file.lastPathComponent)
-            if await indexFile(file, writer: writer, chunker: chunker, parserOptions: parserOptions, provider: provider, embeddingsAvailable: &embeddingsAvailable) {
-                stored += 1
+            let outcome = await indexFile(file, writer: writer, chunker: chunker, parserOptions: parserOptions, provider: provider, maxBytes: maxBytes, embeddingsAvailable: &embeddingsAvailable)
+            switch outcome {
+            case .stored: stored += 1
+            case .failed: failed += 1
+            case .skipped: break
             }
+            resumeWaiters(for: file.path)
             await IndexProgress.shared.fileDone()
         }
 
         let cancelled = Task.isCancelled
+        await VectorIndex.shared.save()
         await IndexProgress.shared.end()
         await IndexProgress.shared.setVectorCount(VectorIndex.shared.count)
         await AppState.shared.updateStats()
+        let summary = cancelled
+            ? "Indexing cancelled after \(stored) file\(stored == 1 ? "" : "s")."
+            : "Indexed \(stored) file\(stored == 1 ? "" : "s") in \(name)." + (failed > 0 ? " \(failed) could not be read." : "")
         if !quiet {
-            if cancelled {
-                await AppState.shared.showNotification("Indexing cancelled after \(stored) file\(stored == 1 ? "" : "s").")
-            } else {
-                await AppState.shared.showNotification("Indexed \(stored) file\(stored == 1 ? "" : "s") in \(name).", type: .success)
-            }
+            await AppState.shared.showNotification(summary, type: cancelled || failed > 0 ? .info : .success)
+        }
+        if reason != .onDemand, stored > 0 || failed > 0 {
+            await LibraryNotifier.shared.notify(title: cancelled ? "Dido stopped indexing" : "Dido finished indexing", body: summary)
         }
     }
 
-    /// Returns true when the file's text was stored.
-    private func indexFile(_ url: URL, writer: IndexWriter, chunker: TextChunker, parserOptions: ParserOptions, provider: any EmbeddingProvider, embeddingsAvailable: inout Bool) async -> Bool {
+    private enum FileOutcome { case stored, skipped, failed }
+
+    private func indexFile(_ url: URL, writer: IndexWriter, chunker: TextChunker, parserOptions: ParserOptions, provider: any EmbeddingProvider, maxBytes: Int64, embeddingsAvailable: inout Bool) async -> FileOutcome {
         let path = url.path
         let ext = url.pathExtension.lowercased()
         let filename = url.lastPathComponent
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modified = values?.contentModificationDate ?? Date()
 
         func record(_ status: IndexStatus, detail: String? = nil) async {
-            _ = try? await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: status, detail: detail, embeddingModel: nil, chunkProfile: nil, chunks: []))
+            _ = try? await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: status, detail: detail, embeddingModel: nil, chunkProfile: nil, fileModified: modified, chunks: []))
             await VectorIndex.shared.remove(path: path)
+            await FullTextIndex.shared.remove(path: path)
         }
 
         guard DocumentParser.supportedExtensions.contains(ext) else {
             await record(.skippedUnsupported)
-            return false
+            return .skipped
+        }
+        if let size = values?.fileSize, Int64(size) > maxBytes {
+            await record(.skippedTooLarge, detail: "\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)) exceeds the limit in Settings")
+            return .skipped
         }
 
-        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? Date()
         if let existing = await writer.existingDocument(at: path), existing.isIndexed, existing.dateIndexed >= modified,
            existing.chunkProfile == chunker.profile, existing.embeddingModel == provider.identifier || !embeddingsAvailable {
-            return false
+            return .skipped
         }
 
         let text: String
@@ -258,19 +324,20 @@ actor DocumentIndexer {
         } catch {
             logger.error("Parse failed for \(path): \(error.localizedDescription)")
             await record(.parseFailed, detail: error.localizedDescription)
-            return false
+            return .failed
         }
 
-        let pieces = chunker.chunk(text)
+        let kind: TextKind = ext == "csv" ? .csv : (DocumentParser.converterExtensions.contains(ext) ? .markdownWithTables : .prose)
+        let pieces = chunker.chunk(text, kind: kind)
         guard !pieces.isEmpty else {
             await record(.empty)
-            return false
+            return .skipped
         }
 
         var vectors: [[Float]] = []
         if embeddingsAvailable {
             for batchStart in stride(from: 0, to: pieces.count, by: embeddingBatchSize) {
-                if Task.isCancelled { return false }
+                if Task.isCancelled { return .skipped }
                 let batch = Array(pieces[batchStart..<min(batchStart + embeddingBatchSize, pieces.count)])
                 do {
                     vectors.append(contentsOf: try await provider.embed(batch.map(\.text)))
@@ -290,17 +357,18 @@ actor DocumentIndexer {
 
         do {
             let entries = try await writer.store(IndexedFile(path: path, filename: filename, type: ext, status: .indexed, detail: nil,
-                                                             embeddingModel: embedded ? provider.identifier : nil, chunkProfile: chunker.profile, chunks: chunks))
+                                                             embeddingModel: embedded ? provider.identifier : nil, chunkProfile: chunker.profile, fileModified: modified, chunks: chunks))
             if embedded {
                 await VectorIndex.shared.replace(path: path, with: entries, model: provider.identifier)
             } else {
                 await VectorIndex.shared.remove(path: path)
             }
+            await FullTextIndex.shared.replace(path: path, passages: entries.map { ($0.chunkID, $0.ordinal, $0.text) })
             logger.info("Indexed \(path) (\(chunks.count) chunks, embedded: \(embedded))")
-            return true
+            return .stored
         } catch {
             logger.error("Store failed for \(path): \(error.localizedDescription)")
-            return false
+            return .failed
         }
     }
 }

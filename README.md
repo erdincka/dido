@@ -24,13 +24,27 @@ Personal, non-commercial use only. Not an HPE product.
   `http://localhost:11434/v1`), LM Studio, LiteLLM or OpenAI. Tokens are stored in the Keychain.
 - Embeds every passage on device with Apple's contextual embedding model (no server needed), or
   through a server's `/embeddings` endpoint if you prefer.
-- Finds the passages relevant to each question with vector search plus a keyword boost, sends
-  small scopes whole, and cites passages as [1], [2]. Each citation and the sources row under an
-  answer open a preview pane showing the passage highlighted among its neighbours, or the
-  document itself with the exact cited range highlighted (text and Markdown) or selected (PDF).
-- "Why this answer" under every reply shows which model answered, the scope, whether the scope
-  was sent whole or ranked, every passage that was sent with its similarity score, and which of
-  them the reply cited.
+- Finds the passages relevant to each question with hybrid retrieval: on-device vectors and a
+  full-text index fused by rank, follow-up questions rewritten into standalone queries, adjacent
+  passages merged into extracts, recently modified files boosted, and an optional filter by file
+  type or modification date. Small scopes are sent whole. Answers cite passages as [1], [2]; the
+  sources row and every citation open a preview with the exact cited range highlighted (text and
+  Markdown) or selected (PDF).
+- "Why this answer" under every reply shows which model answered, the scope, the rewritten query,
+  whether the scope was sent whole or ranked, every extract sent with its score and text-match
+  flag, and which of them the reply cited. Apple Intelligence reports its citations as structured
+  output, so they are recorded even when the prose omits the markers.
+- Regenerate a reply, edit a question and send it again, pin and rename chats, export an answer
+  with its sources as Markdown, or copy it with citations resolved to file names.
+- Compare mode asks each file in a folder the same question and answers with a table plus the
+  agreements and differences.
+- CSV rows keep their header row in every passage; tables in converted Office files do the same.
+  Files above a size limit are skipped with a reason, OCR pages are capped, and a `.didoignore`
+  file or the Exclude list in Settings keeps folders out of the sidebar and the index.
+- The vector index is persisted beside the store and loads in a few seconds even for tens of
+  thousands of passages; a scan finishing in the background posts a notification.
+- First launch opens a short onboarding: choose the folder, check Apple Intelligence or test a
+  server, start the scan.
 - Sends page images to vision-capable server models for PDFs and images.
 - Renders replies as Markdown; copy or delete any message; chat history is kept per file, folder
   or library, capped at 200 messages each.

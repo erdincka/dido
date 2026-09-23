@@ -8,6 +8,7 @@ enum IndexStatus: String, Codable, Sendable {
     case parseFailed
     case empty
     case cancelled
+    case skippedTooLarge
 
     var label: String {
         switch self {
@@ -16,6 +17,7 @@ enum IndexStatus: String, Codable, Sendable {
         case .parseFailed: return "Could not read"
         case .empty: return "No text found"
         case .cancelled: return "Cancelled"
+        case .skippedTooLarge: return "Too large"
         }
     }
 }
@@ -38,6 +40,8 @@ final class Document {
     var embeddingDimension: Int = 0
     /// The chunking settings used, so changed settings re-chunk the file on the next scan.
     var chunkProfile: String?
+    /// The file's modification date when it was indexed, used for recency boosts and filters.
+    var fileModified: Date?
 
     @Relationship(deleteRule: .cascade, inverse: \DocumentChunk.document)
     var chunks: [DocumentChunk] = []
@@ -92,8 +96,13 @@ final class ChatThread {
     var name: String
     var isDirectory: Bool
     var isLibrary: Bool = false
+    var isPinned: Bool = false
+    /// A user-chosen title shown instead of the file or folder name.
+    var customName: String?
     var createdAt: Date
     var updatedAt: Date
+
+    var displayName: String { customName?.isEmpty == false ? customName ?? name : name }
 
     @Relationship(deleteRule: .cascade, inverse: \ChatMessageRecord.thread)
     var messages: [ChatMessageRecord] = []

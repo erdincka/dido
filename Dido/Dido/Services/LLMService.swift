@@ -160,10 +160,59 @@ final class LLMService {
         supportsVision = keywords.contains { name.contains($0) }
     }
 
+    // MARK: - Retrieval query
+
+    private static let followUpOpeners = ["and ", "what about", "how about", "also ", "then ", "it ", "its ", "that ", "those ", "these ", "this ", "they ", "them ", "he ", "she ", "why", "when was that", "same "]
+
+    /// Rewrites a follow-up question into a standalone search query using the recent turns.
+    /// Returns the question itself when it already stands alone or the rewrite fails.
+    func retrievalQuery(for question: String, history: [ChatMessage]) async -> String {
+        let recent = history.suffix(6).filter { !$0.content.isEmpty }
+        guard !recent.isEmpty else { return question }
+        let lowered = question.lowercased().trimmingCharacters(in: .whitespaces)
+        let looksLikeFollowUp = lowered.count < 60 || Self.followUpOpeners.contains { lowered.hasPrefix($0) }
+        guard looksLikeFollowUp else { return question }
+
+        let transcript = recent.map { "\($0.role == .user ? "User" : "Assistant"): \($0.content.prefix(400))" }.joined(separator: "\n")
+        let prompt = """
+        Conversation so far:
+        \(transcript)
+
+        Latest question: \(question)
+
+        Rewrite the latest question as one standalone search query that keeps its meaning and resolves references such as "it", "that" or "the same" using the conversation. Output only the query, nothing else.
+        """
+        do {
+            let rewritten = try await withTimeout(seconds: 12) {
+                try await self.makeAnswerProvider().complete(system: "You rewrite follow-up questions into standalone search queries.", prompt: prompt)
+            }
+            let cleaned = rewritten.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            guard !cleaned.isEmpty, cleaned.count < 400, !cleaned.contains("\n\n") else { return question }
+            logger.info("Retrieval query rewritten: \(cleaned)")
+            return cleaned
+        } catch {
+            logger.info("Query rewrite skipped: \(error.localizedDescription)")
+            return question
+        }
+    }
+
+    private func withTimeout<T: Sendable>(seconds: Double, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw LLMServiceError.apiError(statusCode: 0, body: "timed out")
+            }
+            guard let result = try await group.next() else { throw LLMServiceError.decodingError }
+            group.cancelAll()
+            return result
+        }
+    }
+
     // MARK: - Asking
 
     /// Streams an answer to `question` given prior turns and the retrieved context.
-    func streamAnswer(question: String, history: [ChatMessage], context: RetrievedContext) -> AsyncThrowingStream<String, Error> {
+    func streamAnswer(question: String, history: [ChatMessage], context: RetrievedContext) -> AsyncThrowingStream<AnswerEvent, Error> {
         let provider = makeAnswerProvider()
         let turns = history.suffix(20).map { ChatTurn(role: $0.role, text: $0.content) }
         let prompt = "Context (numbered passages; cite as [n]):\n\(context.text)\n\nQuestion:\n\(question)\n\nAnswer this question directly and concisely, citing passages. Do not add an introduction, a recap of earlier answers or a conclusion."

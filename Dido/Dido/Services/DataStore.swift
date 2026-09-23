@@ -15,10 +15,15 @@ final class DataStore {
 
     private let logger = Logger(subsystem: "com.dido", category: "DataStore")
 
-    private init() {
+    /// `~/Library/Application Support/Dido`, home of the store, the vector index and the full-text index.
+    nonisolated static var storeDirectory: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        let folder = support.appendingPathComponent("Dido", isDirectory: true)
+        return support.appendingPathComponent("Dido", isDirectory: true)
+    }
+
+    private init() {
+        let folder = Self.storeDirectory
         let url = folder.appendingPathComponent("index.store")
         storeURL = url
 

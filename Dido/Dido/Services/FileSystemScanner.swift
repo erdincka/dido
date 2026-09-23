@@ -22,13 +22,26 @@ actor FileSystemScanner {
     static let shared = FileSystemScanner()
 
     private let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey]
+    private var rules = IgnoreRules.empty
+    private var rootPath = ""
+
+    /// Sets the library root and its ignore rules; paths are matched relative to the root.
+    func configure(root: URL?, rules: IgnoreRules) {
+        rootPath = root.map { $0.path.hasSuffix("/") ? $0.path : $0.path + "/" } ?? ""
+        self.rules = rules
+    }
+
+    func isIgnored(_ url: URL) -> Bool {
+        guard !rootPath.isEmpty, url.path.hasPrefix(rootPath) else { return false }
+        return rules.isIgnored(relativePath: String(url.path.dropFirst(rootPath.count)))
+    }
 
     /// Immediate children of a folder: folders first, then files, both in Finder order.
     /// Throws a `ScanError` with a message the user can act on when the folder cannot be read.
     func children(of directory: URL) throws -> [FileItem] {
         do {
             let contents = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
-            return contents.map(item(for:)).sorted(by: Self.finderOrder)
+            return contents.filter { !isIgnored($0) }.map(item(for:)).sorted(by: Self.finderOrder)
         } catch let error as CocoaError where error.code == .fileReadNoPermission {
             throw ScanError.noPermission(directory)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
@@ -48,6 +61,10 @@ actor FileSystemScanner {
         var hits: [FileItem] = []
         while let url = enumerator.nextObject() as? URL {
             if Task.isCancelled || hits.count >= limit { break }
+            if isIgnored(url) {
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true { enumerator.skipDescendants() }
+                continue
+            }
             if url.lastPathComponent.localizedCaseInsensitiveContains(trimmed) {
                 hits.append(item(for: url))
             }
@@ -66,6 +83,10 @@ actor FileSystemScanner {
         while let fileURL = enumerator.nextObject() as? URL {
             if Task.isCancelled { break }
             let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            if isIgnored(fileURL) {
+                if isDir { enumerator.skipDescendants() }
+                continue
+            }
             if !isDir { files.append(fileURL) }
         }
         return files

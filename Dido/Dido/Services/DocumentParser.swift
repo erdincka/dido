@@ -24,6 +24,7 @@ enum ParseError: Error, LocalizedError {
 
 struct ParserOptions: Sendable {
     var ocrEnabled = true
+    var ocrMaxPages = DocumentParser.maxOCRPages
     var converterPath: String? = nil
 }
 
@@ -54,7 +55,7 @@ actor DocumentParser {
             let text = try pdfText(url)
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, options.ocrEnabled {
                 logger.info("No text layer in \(url.lastPathComponent); running OCR")
-                return try ocrPDF(url)
+                return try ocrPDF(url, maxPages: options.ocrMaxPages)
             }
             return text
         case "rtf":
@@ -114,10 +115,10 @@ actor DocumentParser {
 
     // MARK: - OCR with Vision
 
-    private func ocrPDF(_ url: URL) throws -> String {
+    private func ocrPDF(_ url: URL, maxPages: Int) throws -> String {
         guard let document = PDFDocument(url: url) else { throw ParseError.unreadable("The PDF could not be opened.") }
         var text = ""
-        for index in 0..<min(document.pageCount, Self.maxOCRPages) {
+        for index in 0..<min(document.pageCount, max(maxPages, 1)) {
             if Task.isCancelled { break }
             guard let page = document.page(at: index) else { continue }
             let bounds = page.bounds(for: .mediaBox)

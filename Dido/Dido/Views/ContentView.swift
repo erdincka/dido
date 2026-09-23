@@ -4,6 +4,8 @@ struct ContentView: View {
     @Bindable var appState = AppState.shared
     private let dataStore = DataStore.shared
     private let indexSettings = IndexSettings.shared
+    @AppStorage("onboardingDone") private var onboardingDone = false
+    @State private var showOnboarding = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,6 +16,12 @@ struct ContentView: View {
         .task(id: appState.pkmRootBookmark ?? Data(appState.pkmRootPath.utf8)) {
             let root = appState.activateRoot()
             LibraryMonitor.shared.activate(root: root, autoIndex: indexSettings.autoIndex)
+        }
+        .onAppear {
+            if !onboardingDone && appState.rootURL == nil { showOnboarding = true }
+        }
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView { onboardingDone = true }
         }
     }
 

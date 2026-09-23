@@ -51,34 +51,34 @@ Fix what is broken before adding anything.
 
 ## Recommended next steps (2026-09-23)
 
-Ordered by expected value for a personal knowledge-scan tool. None is started.
+Ordered by expected value for a personal knowledge-scan tool. Ticked items landed on 2026-09-23.
 
 ### Retrieval quality
-- [ ] Rewrite follow-up questions into standalone queries using the recent turns before searching,
+- [x] Rewrite follow-up questions into standalone queries using the recent turns before searching,
       so "and what was the restore time?" retrieves as well as the first question did.
-- [ ] Hybrid retrieval: a SQLite FTS5 full-text index beside the vectors, merged by reciprocal rank,
+- [x] Hybrid retrieval: a SQLite FTS5 full-text index beside the vectors, merged by reciprocal rank,
       so exact names, codes and numbers are never missed by the embedding.
-- [ ] Merge adjacent passages from the same file before sending them, and dedupe near-identical ones,
+- [x] Merge adjacent passages from the same file before sending them, and dedupe near-identical ones,
       so ten citations from one document become two or three coherent extracts.
-- [ ] Metadata boosts and filters: recently modified files first, restrict to a folder or file type,
+- [x] Metadata boosts and filters: recently modified files first, restrict to a folder or file type,
       exclude patterns (a `.didoignore` file or Settings list).
-- [ ] Row-aware chunking for CSV and XLSX, keeping the header row with every chunk.
-- [ ] Force citations from Apple Intelligence with guided generation (a `@Generable` answer with a
+- [x] Row-aware chunking for CSV and XLSX, keeping the header row with every chunk.
+- [x] Force citations from Apple Intelligence with guided generation (a `@Generable` answer with a
       citation list) instead of relying on the model writing `[n]`.
 
 ### Scale and performance
-- [ ] Persist the vector index as a compact binary file loaded with mmap, instead of rebuilding it
+- [x] Persist the vector index as a compact binary file loaded with mmap, instead of rebuilding it
       from SwiftData at launch (about 3 to 6 seconds for 18,000 passages today).
-- [ ] Approximate nearest-neighbour search (HNSW) once libraries pass roughly 100,000 passages.
-- [ ] Priority queue for the indexer so the open file and folder are indexed before the background
+- [~] Approximate nearest-neighbour search: not needed. Scoring is now one Accelerate matrix-vector product over the whole index (18,000 passages in well under 100 ms); revisit only past several hundred thousand passages.
+- [x] Priority queue for the indexer so the open file and folder are indexed before the background
       scan continues; cap OCR pages and skip files above a size limit with a clear status.
-- [ ] Notify (menu bar badge or system notification) when a background scan finishes or fails.
+- [x] Notify (menu bar badge or system notification) when a background scan finishes or fails.
 
 ### Chat and answers
-- [ ] Regenerate, edit-and-resend, and pin or rename threads.
-- [ ] Export an answer with its sources as Markdown, and copy with citations resolved to file names.
-- [ ] A "compare documents" mode that answers per file and shows a table of differences.
-- [ ] Streaming for the on-device model with token deltas rather than cumulative snapshots.
+- [x] Regenerate, edit-and-resend, and pin or rename threads.
+- [x] Export an answer with its sources as Markdown, and copy with citations resolved to file names.
+- [x] A "compare documents" mode that answers per file and shows a table of differences.
+- [x] Streaming for the on-device model with token deltas rather than cumulative snapshots.
 
 ### Preview and library
 - [ ] Highlight the cited range inside rendered Markdown, not only the raw text.
@@ -90,7 +90,7 @@ Ordered by expected value for a personal knowledge-scan tool. None is started.
       through the debug launch flags after each change, with retrieval hit rate and answer checks.
 - [ ] Unit tests for the chunker, offsets, citation parsing and the vector index (currently no test
       target by decision; revisit once the retrieval code settles).
-- [ ] First-launch onboarding: choose the folder, check Apple Intelligence, pick a server if needed.
+- [x] First-launch onboarding: choose the folder, check Apple Intelligence, pick a server if needed.
 - [ ] Signing, notarisation and Sparkle updates if the app is shared beyond this Mac.
 - [ ] Per-tab sizing of the Settings window; keyboard navigation of sources and passages.
 - [ ] Encrypt the store or place it in a user-chosen location for sensitive libraries.

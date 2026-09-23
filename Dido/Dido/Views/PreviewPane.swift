@@ -33,7 +33,7 @@ struct PreviewPane: View {
             Divider()
             Group {
                 if mode == .passage, let citation {
-                    PassageView(passages: passages, highlighted: citation.ordinal)
+                    PassageView(passages: passages, highlighted: citation.ordinal, highlightedEnd: citation.lastOrdinal)
                 } else {
                     DocumentView(url: target, passage: citation.flatMap { c in passages.first { $0.ordinal == c.ordinal } })
                 }
@@ -54,6 +54,9 @@ struct PreviewPane: View {
 struct PassageView: View {
     let passages: [Passage]
     let highlighted: Int
+    var highlightedEnd: Int? = nil
+
+    private func isHighlighted(_ ordinal: Int) -> Bool { ordinal >= highlighted && ordinal <= (highlightedEnd ?? highlighted) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -67,8 +70,8 @@ struct PassageView: View {
                             .textSelection(.enabled)
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(passage.ordinal == highlighted ? Color.yellow.opacity(0.25) : Color.clear)
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(passage.ordinal == highlighted ? Color.orange.opacity(0.6) : Color.clear))
+                            .background(isHighlighted(passage.ordinal) ? Color.yellow.opacity(0.25) : Color.clear)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(isHighlighted(passage.ordinal) ? Color.orange.opacity(0.6) : Color.clear))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                             .id(passage.ordinal)
                     }

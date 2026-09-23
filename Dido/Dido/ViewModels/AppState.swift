@@ -19,11 +19,14 @@ final class AppState {
     var searchText: String = ""
     var searchPresented: Bool = false
     var previewVisible: Bool = false
+    /// Narrows retrieval for the current chat; reset when the item changes.
+    var retrievalFilter = RetrievalFilter()
     /// Debug launch flags: expand "Why this answer" on every reply, and choose the preview mode on open.
     var debugExpandWhy = false
     var debugPreviewMode: String?
     var debugFollowUpQuestion: String?
     var debugThenOpenSource: Int?
+    var debugCompare = false
 
     /// Keeps the sparkles item in the menu bar for quick questions.
     var showMenuBarExtra: Bool = UserDefaults.standard.object(forKey: "showMenuBarExtra") as? Bool ?? true {

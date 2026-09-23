@@ -10,13 +10,32 @@ struct ChatTurn: Sendable {
     let text: String
 }
 
+/// What a provider emits while answering: text as it arrives, and optionally the passages it relied on.
+enum AnswerEvent: Sendable {
+    case token(String)
+    /// Passage numbers the model reported through structured output (the on-device model).
+    case citations([Int])
+}
+
 /// Generates answers. Implementations are safe to use from any actor.
 protocol AnswerProvider: Sendable {
     var name: String { get }
     /// How many characters of retrieved context the model can comfortably take.
     var contextBudget: Int { get }
     var supportsImages: Bool { get }
-    func stream(system: String, history: [ChatTurn], prompt: String, images: [String]) -> AsyncThrowingStream<String, Error>
+    func stream(system: String, history: [ChatTurn], prompt: String, images: [String]) -> AsyncThrowingStream<AnswerEvent, Error>
+    /// A short, non-streamed reply for helper tasks such as rewriting a query.
+    func complete(system: String, prompt: String) async throws -> String
+}
+
+extension AnswerProvider {
+    func complete(system: String, prompt: String) async throws -> String {
+        var text = ""
+        for try await event in stream(system: system, history: [], prompt: prompt, images: []) {
+            if case .token(let token) = event { text += token }
+        }
+        return text
+    }
 }
 
 // MARK: - OpenAI-compatible server
@@ -33,7 +52,7 @@ struct ServerAnswerProvider: AnswerProvider {
     }
     var contextBudget: Int { 60_000 }
 
-    func stream(system: String, history: [ChatTurn], prompt: String, images: [String]) -> AsyncThrowingStream<String, Error> {
+    func stream(system: String, history: [ChatTurn], prompt: String, images: [String]) -> AsyncThrowingStream<AnswerEvent, Error> {
         guard !model.isEmpty else {
             return AsyncThrowingStream { $0.finish(throwing: LLMServiceError.modelNotSelected) }
         }
@@ -46,7 +65,22 @@ struct ServerAnswerProvider: AnswerProvider {
             parts += images.map { .imageURL("data:image/png;base64,\($0)") }
         }
         messages.append(APIMessage(role: "user", parts: parts))
-        return client.streamChat(model: model, messages: messages)
+        let tokens = client.streamChat(model: model, messages: messages)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await token in tokens { continuation.yield(.token(token)) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    func complete(system: String, prompt: String) async throws -> String {
+        try await client.complete(model: model, messages: [APIMessage(role: "system", text: system), APIMessage(role: "user", text: prompt)])
     }
 }
 
@@ -89,6 +123,16 @@ enum AppleModelStatus: Sendable, Equatable {
 }
 
 #if canImport(FoundationModels)
+/// The shape the on-device model fills in, so citations arrive as data rather than as text the model may omit.
+@available(macOS 26.0, *)
+@Generable
+struct CitedAnswer {
+    @Guide(description: "The answer in Markdown. Cite passages inline as [n] where n is a passage number from the context.")
+    var answer: String
+    @Guide(description: "Numbers of the context passages the answer relies on, in order of importance. Empty when none apply.")
+    var citations: [Int]
+}
+
 @available(macOS 26.0, *)
 struct AppleAnswerProvider: AnswerProvider {
     let name = "Apple Intelligence"
@@ -98,7 +142,7 @@ struct AppleAnswerProvider: AnswerProvider {
 
     private static let historyBudget = 1_500
 
-    func stream(system: String, history: [ChatTurn], prompt: String, images: [String]) -> AsyncThrowingStream<String, Error> {
+    func stream(system: String, history: [ChatTurn], prompt: String, images: [String]) -> AsyncThrowingStream<AnswerEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -114,21 +158,34 @@ struct AppleAnswerProvider: AnswerProvider {
                     }
                     fullPrompt += prompt
                     var previous = ""
-                    for try await snapshot in session.streamResponse(to: fullPrompt) {
-                        let content = snapshot.content
+                    var citations: [Int] = []
+                    for try await snapshot in session.streamResponse(to: fullPrompt, generating: CitedAnswer.self) {
+                        let content = snapshot.content.answer ?? ""
                         if content.hasPrefix(previous) {
-                            continuation.yield(String(content.dropFirst(previous.count)))
+                            let delta = String(content.dropFirst(previous.count))
+                            if !delta.isEmpty { continuation.yield(.token(delta)) }
                         } else {
-                            continuation.yield(content)
+                            continuation.yield(.token(content))
                         }
                         previous = content
+                        if let latest = snapshot.content.citations { citations = latest }
                     }
+                    if !citations.isEmpty { continuation.yield(.citations(citations)) }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: Self.describe(error))
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    func complete(system: String, prompt: String) async throws -> String {
+        let session = LanguageModelSession(instructions: system)
+        do {
+            return try await session.respond(to: prompt).content
+        } catch {
+            throw Self.describe(error)
         }
     }
 

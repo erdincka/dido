@@ -21,7 +21,7 @@ enum DebugLog {
 }
 
 /// Debug-only helper for visual verification without Screen Recording permission.
-/// Launch with `-DidoScreenshot /path/to/out.png` (optionally `-DidoAppearance dark`, `-DidoOpen /file`, `-DidoAsk "question"`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`, `-DidoSearch text`, `-DidoOpenFirstSource YES`, `-DidoQuickAsk \"question\"`, `-DidoDebugLog /path.log`, `-DidoExpandWhy YES`, `-DidoPreviewMode document`, `-DidoAskThen \"follow-up\"`, `-DidoThenOpenSource 3`, `-DidoScreenshotDelay 30`); `-DidoOpen library` opens the whole-library chat
+/// Launch with `-DidoScreenshot /path/to/out.png` (optionally `-DidoAppearance dark`, `-DidoOpen /file`, `-DidoAsk "question"`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`, `-DidoSearch text`, `-DidoOpenFirstSource YES`, `-DidoQuickAsk \"question\"`, `-DidoDebugLog /path.log`, `-DidoExpandWhy YES`, `-DidoPreviewMode document`, `-DidoAskThen \"follow-up\"`, `-DidoThenOpenSource 3`, `-DidoCompare YES`, `-DidoScreenshotDelay 30`); `-DidoOpen library` opens the whole-library chat
 /// and the app writes a PNG of its main window after a short delay, then quits.
 @MainActor
 final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
@@ -53,6 +53,7 @@ final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
         AppState.shared.debugPreviewMode = defaults.string(forKey: "DidoPreviewMode")
         AppState.shared.debugFollowUpQuestion = defaults.string(forKey: "DidoAskThen")
         AppState.shared.debugThenOpenSource = defaults.object(forKey: "DidoThenOpenSource") as? Int
+        AppState.shared.debugCompare = defaults.bool(forKey: "DidoCompare")
         if let search = defaults.string(forKey: "DidoSearch") {
             AppState.shared.searchText = search
         }

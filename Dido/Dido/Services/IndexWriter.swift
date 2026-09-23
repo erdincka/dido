@@ -10,6 +10,7 @@ struct IndexedFile: Sendable {
     let detail: String?
     let embeddingModel: String?
     let chunkProfile: String?
+    let fileModified: Date?
     let chunks: [IndexedChunk]
 }
 
@@ -62,6 +63,7 @@ actor IndexWriter {
         document.embeddingModel = file.embeddingModel
         document.embeddingDimension = file.chunks.first?.vector.count ?? 0
         document.chunkProfile = file.chunkProfile
+        document.fileModified = file.fileModified
         let chunks = file.chunks.map { DocumentChunk(ordinal: $0.ordinal, text: $0.text, vector: $0.vector, startOffset: $0.start, endOffset: $0.end) }
         document.chunks = chunks
         modelContext.insert(document)
@@ -128,6 +130,6 @@ actor IndexWriter {
     private static func entry(for chunk: DocumentChunk, in document: Document) -> IndexEntry? {
         guard !chunk.vector.isEmpty else { return nil }
         return IndexEntry(chunkID: chunk.id, path: document.path, filename: document.filename, ordinal: chunk.ordinal,
-                          start: chunk.startOffset, end: chunk.endOffset, text: chunk.text, vector: chunk.vector)
+                          start: chunk.startOffset, end: chunk.endOffset, text: chunk.text, vector: chunk.vector, modified: document.fileModified)
     }
 }

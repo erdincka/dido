@@ -16,6 +16,8 @@ final class LibraryMonitor {
 
     /// Starts watching `root`, replacing any previous watch, and kicks off the background scan.
     func activate(root: URL?, autoIndex: Bool) {
+        let rules = root.map { IgnoreRules.load(root: $0, extra: IndexSettings.shared.excludePatterns) } ?? .empty
+        Task { await FileSystemScanner.shared.configure(root: root, rules: rules) }
         if watchedRoot != root {
             watcher?.stop()
             watcher = nil
@@ -30,7 +32,7 @@ final class LibraryMonitor {
             }
         }
         if let root, autoIndex {
-            Task { await DocumentIndexer.shared.index(root, quiet: true) }
+            Task { await DocumentIndexer.shared.index(root, quiet: true, reason: .background) }
         }
     }
 

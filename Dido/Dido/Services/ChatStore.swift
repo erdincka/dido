@@ -24,7 +24,10 @@ final class ChatStore {
         var descriptor = FetchDescriptor<ChatThread>(sortBy: [SortDescriptor(\.updatedAt, order: .reverse)])
         descriptor.fetchLimit = 50
         let threads = (try? context.fetch(descriptor)) ?? []
-        recentThreads = threads.filter { !$0.messages.isEmpty }
+        recentThreads = threads.filter { !$0.messages.isEmpty }.sorted { a, b in
+            if a.isPinned != b.isPinned { return a.isPinned }
+            return a.updatedAt > b.updatedAt
+        }
     }
 
     func messages(for item: SelectedItem) -> [ChatMessage] {
@@ -73,6 +76,29 @@ final class ChatStore {
     func delete(_ thread: ChatThread) {
         guard let context else { return }
         context.delete(thread)
+        save()
+        reloadThreads()
+    }
+
+    func setPinned(_ thread: ChatThread, _ pinned: Bool) {
+        thread.isPinned = pinned
+        save()
+        reloadThreads()
+    }
+
+    func rename(_ thread: ChatThread, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        thread.customName = trimmed.isEmpty ? nil : trimmed
+        save()
+        reloadThreads()
+    }
+
+    /// Deletes a message and every later one in the same thread (used by edit-and-resend and regenerate).
+    func deleteMessages(from messageID: UUID, in item: SelectedItem) {
+        guard let context, let thread = thread(for: item, createIfNeeded: false) else { return }
+        let ordered = thread.messages.sorted { $0.createdAt < $1.createdAt }
+        guard let start = ordered.firstIndex(where: { $0.id == messageID }) else { return }
+        for record in ordered[start...] { context.delete(record) }
         save()
         reloadThreads()
     }
