@@ -27,6 +27,9 @@ final class AppState {
     var debugFollowUpQuestion: String?
     var debugThenOpenSource: Int?
     var debugCompare = false
+    /// Debug launch flags for the sub-task planner: always plan, and run the plan without waiting for approval.
+    var debugForcePlan = false
+    var debugAutoRunPlan = false
 
     /// Keeps the sparkles item in the menu bar for quick questions.
     var showMenuBarExtra: Bool = UserDefaults.standard.object(forKey: "showMenuBarExtra") as? Bool ?? true {

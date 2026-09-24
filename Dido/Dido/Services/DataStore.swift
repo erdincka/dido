@@ -17,6 +17,11 @@ final class DataStore {
 
     /// `~/Library/Application Support/Dido`, home of the store, the vector index and the full-text index.
     nonisolated static var storeDirectory: URL {
+        #if DEBUG
+        if let override = UserDefaults.standard.string(forKey: "DidoStoreDirectory"), !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        #endif
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         return support.appendingPathComponent("Dido", isDirectory: true)

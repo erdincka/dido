@@ -6,20 +6,22 @@ import os
 struct ChatView: View {
     let selectedItem: SelectedItem
 
-    @State private var messages: [ChatMessage] = []
-    @State private var draft = ""
-    @State private var streamingText = ""
-    @State private var generation: Task<Void, Never>?
+    @State var messages: [ChatMessage] = []
+    @State var draft = ""
+    @State var streamingText = ""
+    @State var generation: Task<Void, Never>?
     @State private var previewURL: URL?
     @State private var previewCitation: Citation?
-    @State private var compareMode = false
-    @Bindable private var appState = AppState.shared
+    @State var compareMode = false
+    /// Present while a question runs as reviewed sub-tasks; the transcript shows its card instead of the streaming row.
+    @State var agentRunner: AgentRunner?
+    @Bindable var appState = AppState.shared
 
-    private let chatStore = ChatStore.shared
-    private let llm = LLMService.shared
-    private let logger = Logger(subsystem: "com.dido", category: "ChatView")
+    let chatStore = ChatStore.shared
+    let llm = LLMService.shared
+    let logger = Logger(subsystem: "com.dido", category: "ChatView")
 
-    private var isGenerating: Bool { generation != nil }
+    var isGenerating: Bool { generation != nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,7 +71,11 @@ struct ChatView: View {
                         row(for: message, at: index)
                             .id(message.id)
                     }
-                    if isGenerating {
+                    // Distinct ids: a lazy stack keeps showing the row it laid out first when two views share one id.
+                    if let runner = agentRunner {
+                        AgentRunView(runner: runner, onOpenSource: openSource)
+                            .id("agent")
+                    } else if isGenerating {
                         MessageRow(message: ChatMessage(role: .assistant, content: streamingText), isStreaming: true)
                             .id("streaming")
                     }
@@ -78,6 +84,8 @@ struct ChatView: View {
             }
             .onChange(of: messages.count) { _, _ in scrollToBottom(proxy) }
             .onChange(of: streamingText) { _, _ in scrollToBottom(proxy) }
+            .onChange(of: agentRunner?.steps.count) { _, _ in scrollToBottom(proxy) }
+            .onChange(of: agentRunner?.answerText) { _, _ in scrollToBottom(proxy) }
             .onAppear { scrollToBottom(proxy) }
         }
     }
@@ -101,7 +109,9 @@ struct ChatView: View {
         // The lazy stack lays out a new row a moment after it is inserted, so scroll on the next turn of the run loop.
         DispatchQueue.main.async {
             withAnimation(.easeInOut(duration: 0.2)) {
-                if isGenerating {
+                if agentRunner != nil {
+                    proxy.scrollTo("agent", anchor: .bottom)
+                } else if isGenerating {
                     proxy.scrollTo("streaming", anchor: .bottom)
                 } else if let last = messages.last {
                     proxy.scrollTo(last.id, anchor: .bottom)
@@ -146,13 +156,13 @@ struct ChatView: View {
     }
 
     /// Shows a cited passage in the preview pane, in context of its neighbours.
-    private func openSource(_ citation: Citation) {
+    func openSource(_ citation: Citation) {
         previewCitation = citation
         appState.previewVisible = true
     }
 
     /// The [n] markers the model actually used, including lists such as [2, 5], so the sources row matches the answer.
-    private static func citedIndexes(in text: String) -> Set<Int> {
+    static func citedIndexes(in text: String) -> Set<Int> {
         guard let regex = try? NSRegularExpression(pattern: #"\[(\d{1,3}(?:\s*,\s*\d{1,3})*)\]"#) else { return [] }
         let range = NSRange(text.startIndex..., in: text)
         var numbers: Set<Int> = []
@@ -163,154 +173,5 @@ struct ChatView: View {
             }
         }
         return numbers
-    }
-
-    // MARK: - Asking
-
-    private func send(_ text: String) {
-        let question = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, !isGenerating else { return }
-        draft = ""
-
-        let history = messages
-        let userMessage = ChatMessage(role: .user, content: question)
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            messages.append(userMessage)
-        }
-        chatStore.append(userMessage, to: selectedItem)
-        streamingText = ""
-        logger.info("Asking about \(selectedItem.name)")
-
-        if compareMode && selectedItem.kind == .folder {
-            generation = Task {
-                var failure: String?
-                var content = ""
-                do {
-                    content = try await CompareRunner(folder: selectedItem, question: question) { progress in streamingText = progress }.run()
-                    streamingText = content
-                } catch {
-                    if !Task.isCancelled { failure = error.localizedDescription }
-                }
-                finishGeneration(stopped: Task.isCancelled, failure: failure, sources: [], details: nil)
-            }
-            return
-        }
-
-        generation = Task {
-            var failure: String?
-            var sources: [Citation] = []
-            var details: AnswerDetails?
-            var reported: [Int] = []
-            do {
-                let provider = llm.makeAnswerProvider()
-                let context = await ContextBuilder().build(for: selectedItem, question: question, history: history, budget: provider.contextBudget, includeImages: provider.supportsImages, filter: appState.retrievalFilter)
-                sources = context.citations
-                details = context.details(provider: provider.name, scope: selectedItem.name)
-                for try await event in llm.streamAnswer(question: question, history: history, context: context) {
-                    switch event {
-                    case .token(let token): streamingText += token
-                    case .citations(let numbers): reported = numbers
-                    }
-                }
-            } catch {
-                if !Task.isCancelled {
-                    failure = error.localizedDescription
-                    logger.error("Generation failed: \(error.localizedDescription)")
-                }
-            }
-            finishGeneration(stopped: Task.isCancelled, failure: failure, sources: sources, details: details, reported: reported)
-        }
-    }
-
-    private func stop() {
-        generation?.cancel()
-    }
-
-    private func finishGeneration(stopped: Bool, failure: String?, sources: [Citation], details: AnswerDetails?, reported: [Int] = []) {
-        var content = streamingText
-        if let failure {
-            content += (content.isEmpty ? "" : "\n\n") + "**Error:** \(failure)"
-        } else if stopped && !content.isEmpty {
-            content += "\n\n_Stopped._"
-        }
-        if !content.isEmpty {
-            let cited = Self.citedIndexes(in: content).union(reported)
-            let used = sources.filter { cited.contains($0.index) }
-            let reply = ChatMessage(role: .assistant, content: content, sources: used.isEmpty ? sources : used, details: details)
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                messages.append(reply)
-            }
-            chatStore.append(reply, to: selectedItem)
-            #if DEBUG
-            if UserDefaults.standard.bool(forKey: "DidoOpenFirstSource"), let first = reply.sources.first {
-                openSource(first)
-                if let nth = AppState.shared.debugThenOpenSource, reply.sources.count >= nth {
-                    AppState.shared.debugThenOpenSource = nil
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { openSource(reply.sources[nth - 1]) }
-                }
-            }
-            if let followUp = AppState.shared.debugFollowUpQuestion {
-                AppState.shared.debugFollowUpQuestion = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { send(followUp) }
-            }
-            #endif
-        }
-        streamingText = ""
-        generation = nil
-    }
-}
-
-/// Suggestions shown before the first message.
-struct WelcomeView: View {
-    let item: SelectedItem
-    let onSuggestion: (String) -> Void
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Spacer().frame(height: 40)
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 40))
-                .foregroundStyle(.blue.opacity(0.3))
-            Text(item.isLibrary ? "Ask anything about your library" : "Start a conversation about this \(item.isDirectory ? "folder" : "file")")
-                .font(.system(.headline, design: .rounded))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 10) {
-                if !item.isLibrary {
-                    SuggestionChip(text: "Summarise this \(item.isDirectory ? "folder" : "document")") {
-                        onSuggestion("Summarise \(item.name).")
-                    }
-                }
-                SuggestionChip(text: "What are the key points?") {
-                    onSuggestion(item.isLibrary ? "What are the most important recent decisions across my documents?" : "What are the most important points in \(item.name)?")
-                }
-                if item.kind == .folder {
-                    SuggestionChip(text: "What is in this folder?") {
-                        onSuggestion("List the main files in this folder and what each one is about.")
-                    }
-                }
-            }
-            .padding(.top)
-        }
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding()
-    }
-}
-
-struct SuggestionChip: View {
-    let text: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(text)
-                .font(.system(.subheadline, design: .rounded))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
     }
 }

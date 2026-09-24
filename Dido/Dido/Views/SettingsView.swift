@@ -134,6 +134,16 @@ struct IntelligenceSettingsTab: View {
                 Text("Ollama at \(LLMService.defaultBaseURL), LM Studio, LiteLLM or OpenAI itself. The token is kept in the Keychain.")
             }
 
+            Section {
+                Toggle("Split multi-step questions into sub-tasks you can review", isOn: $llm.autoPlan)
+                Toggle("Let sub-tasks run read-only shell commands inside the library", isOn: $llm.allowShellSteps)
+                    .disabled(!llm.autoPlan)
+            } header: {
+                Text("Sub-tasks")
+            } footer: {
+                Text("Questions that need browsing folders, checking dates or looking in several places are planned as sub-tasks. You see the plan first, and can edit, stop, re-run or steer each step while it runs. Shell steps are limited to ls, find, grep, cat, head, tail, wc, stat, du, file, sort and uniq, with every path checked against the library folder.")
+            }
+
             Section("System prompt") {
                 TextEditor(text: $llm.systemPrompt)
                     .frame(height: 110)

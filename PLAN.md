@@ -75,6 +75,12 @@ Ordered by expected value for a personal knowledge-scan tool. Ticked items lande
 - [x] Notify (menu bar badge or system notification) when a background scan finishes or fails.
 
 ### Chat and answers
+- [x] Sub-tasks for multi-step questions: automatic routing, a reviewed plan, live trace per step, stop, edit,
+      re-run, skip, hints that re-plan the remaining steps, questions back to the user, and a consolidated answer
+      with the trace saved on the reply (2026-09-23).
+- [ ] Adaptive plans: let a step's outcome rewrite the steps after it without a hint (today steps are fixed at plan
+      time; a hint or an edit re-plans). Run independent steps in parallel on server models.
+- [ ] Guided (`@Generable`) plan output for Apple Intelligence, which is unreliable at writing JSON.
 - [x] Regenerate, edit-and-resend, and pin or rename threads.
 - [x] Export an answer with its sources as Markdown, and copy with citations resolved to file names.
 - [x] A "compare documents" mode that answers per file and shows a table of differences.

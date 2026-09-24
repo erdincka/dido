@@ -91,6 +91,16 @@ final class LLMService {
         didSet { UserDefaults.standard.set(systemPrompt, forKey: "systemPrompt") }
     }
 
+    /// Splits questions that need browsing, dates or several places into reviewed sub-tasks.
+    var autoPlan: Bool = UserDefaults.standard.object(forKey: "autoPlan") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoPlan, forKey: "autoPlan") }
+    }
+
+    /// Lets sub-tasks run read-only shell commands (ls, find, grep, cat…) inside the library.
+    var allowShellSteps: Bool = UserDefaults.standard.object(forKey: "allowShellSteps") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(allowShellSteps, forKey: "allowShellSteps") }
+    }
+
     private(set) var availableModels: [String] = []
     private(set) var supportsVision = false
     let appleModelStatus = AppleModelStatus.current
@@ -186,7 +196,11 @@ final class LLMService {
             let rewritten = try await withTimeout(seconds: 12) {
                 try await self.makeAnswerProvider().complete(system: "You rewrite follow-up questions into standalone search queries.", prompt: prompt)
             }
-            let cleaned = rewritten.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            var cleaned = rewritten.trimmingCharacters(in: .whitespacesAndNewlines)
+            for label in ["Latest question:", "Standalone query:", "Query:", "Search query:"] where cleaned.lowercased().hasPrefix(label.lowercased()) {
+                cleaned = String(cleaned.dropFirst(label.count)).trimmingCharacters(in: .whitespaces)
+            }
+            cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
             guard !cleaned.isEmpty, cleaned.count < 400, !cleaned.contains("\n\n") else { return question }
             logger.info("Retrieval query rewritten: \(cleaned)")
             return cleaned
@@ -196,26 +210,27 @@ final class LLMService {
         }
     }
 
-    private func withTimeout<T: Sendable>(seconds: Double, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await operation() }
-            group.addTask {
-                try await Task.sleep(for: .seconds(seconds))
-                throw LLMServiceError.apiError(statusCode: 0, body: "timed out")
-            }
-            guard let result = try await group.next() else { throw LLMServiceError.decodingError }
-            group.cancelAll()
-            return result
-        }
-    }
-
     // MARK: - Asking
+
+    nonisolated private static let correctionSignals = [
+        "not the latest", "not correct", "incorrect", "that's wrong", "that is wrong", "this is wrong", "wrong answer",
+        "that's not", "that is not", "this is not", "try again", "look again", "check again", "you missed",
+    ]
+
+    /// True when the question disputes an earlier answer or asks for the newest information, so earlier answers
+    /// may be wrong or outdated and must not be copied.
+    nonisolated static func distrustsEarlierAnswers(_ question: String) -> Bool {
+        let lowered = question.lowercased()
+        return DocumentVersions.asksForLatest(question) || correctionSignals.contains { lowered.contains($0) }
+    }
 
     /// Streams an answer to `question` given prior turns and the retrieved context.
     func streamAnswer(question: String, history: [ChatMessage], context: RetrievedContext) -> AsyncThrowingStream<AnswerEvent, Error> {
         let provider = makeAnswerProvider()
-        let turns = history.suffix(20).map { ChatTurn(role: $0.role, text: $0.content) }
-        let prompt = "Context (numbered passages; cite as [n]):\n\(context.text)\n\nQuestion:\n\(question)\n\nAnswer this question directly and concisely, citing passages. Do not add an introduction, a recap of earlier answers or a conclusion."
+        // Small models repeat an earlier answer over the passages; keep only the questions when that answer is in doubt.
+        let kept = Self.distrustsEarlierAnswers(question) ? history.filter { $0.role == .user } : history
+        let turns = kept.suffix(20).map { ChatTurn(role: $0.role, text: $0.content) }
+        let prompt = "Context (numbered passages; cite as [n]):\n\(context.text)\n\nQuestion:\n\(question)\n\nAnswer this question directly from these passages, citing them. If an earlier answer in the conversation disagrees with the passages, the passages are right. Each passage shows its document's date: when documents or versions disagree, use the most recent one and name it. When the question asks for a configuration, specification, design or list, give every relevant component, count and value the passages contain, as a list or table. Do not add an introduction, a recap of earlier answers or a conclusion."
         return provider.stream(system: systemPrompt, history: turns, prompt: prompt, images: context.images)
     }
 }

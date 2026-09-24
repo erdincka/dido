@@ -132,6 +132,8 @@ final class ChatMessageRecord {
     var sourcesJSON: String?
     /// JSON-encoded `AnswerDetails`: how the context for this reply was chosen.
     var detailsJSON: String?
+    /// JSON-encoded `AgentTrace` for replies that were planned as sub-tasks.
+    var traceJSON: String?
 
     var thread: ChatThread?
 

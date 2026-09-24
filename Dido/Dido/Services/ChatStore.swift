@@ -37,7 +37,8 @@ final class ChatStore {
             .map { record in
                 let sources = record.sourcesJSON.flatMap { try? JSONDecoder().decode([Citation].self, from: Data($0.utf8)) } ?? []
                 let details = record.detailsJSON.flatMap { try? JSONDecoder().decode(AnswerDetails.self, from: Data($0.utf8)) }
-                return ChatMessage(id: record.id, role: ChatRole(rawValue: record.roleRaw) ?? .assistant, content: record.content, createdAt: record.createdAt, sources: sources, details: details)
+                let trace = record.traceJSON.flatMap { try? JSONDecoder().decode(AgentTrace.self, from: Data($0.utf8)) }
+                return ChatMessage(id: record.id, role: ChatRole(rawValue: record.roleRaw) ?? .assistant, content: record.content, createdAt: record.createdAt, sources: sources, details: details, trace: trace)
             }
     }
 
@@ -49,6 +50,9 @@ final class ChatStore {
         }
         if let details = message.details, let data = try? JSONEncoder().encode(details) {
             record.detailsJSON = String(decoding: data, as: UTF8.self)
+        }
+        if let trace = message.trace, let data = try? JSONEncoder().encode(trace) {
+            record.traceJSON = String(decoding: data, as: UTF8.self)
         }
         record.thread = thread
         context.insert(record)

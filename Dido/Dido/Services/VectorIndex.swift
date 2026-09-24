@@ -41,10 +41,13 @@ enum SearchScope: Sendable {
 struct RetrievalFilter: Sendable, Hashable, Codable {
     var fileTypes: Set<String> = []
     var modifiedWithinDays: Int?
+    /// Older versions of documents left out because the question asked for the latest (not a user choice).
+    var excludedPaths: Set<String> = []
 
     var isEmpty: Bool { fileTypes.isEmpty && modifiedWithinDays == nil }
 
     func allows(_ entry: IndexEntry) -> Bool {
+        if excludedPaths.contains(entry.path) { return false }
         if !fileTypes.isEmpty && !fileTypes.contains(entry.fileType) { return false }
         if let days = modifiedWithinDays {
             guard let modified = entry.modified, modified >= Date().addingTimeInterval(-Double(days) * 86_400) else { return false }
@@ -140,7 +143,13 @@ actor VectorIndex {
     }
 
     private func compactIfNeeded() {
-        guard tombstones > 0, tombstones * 5 > entries.count else { return }
+        guard tombstones * 5 > entries.count else { return }
+        compact()
+    }
+
+    /// Drops removed rows. Must run before saving: the file has no liveness flags, so a saved dead row loads as live.
+    private func compact() {
+        guard tombstones > 0 else { return }
         var newEntries: [IndexEntry] = []
         var newMatrix: [Float] = []
         newEntries.reserveCapacity(entries.count - tombstones)
@@ -255,7 +264,7 @@ actor VectorIndex {
     }
 
     func save() {
-        compactIfNeeded()
+        compact()
         guard let modelIdentifier else { return }
         let started = Date()
         do {

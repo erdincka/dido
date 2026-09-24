@@ -38,6 +38,15 @@ Personal, non-commercial use only. Not an HPE product.
   with its sources as Markdown, or copy it with citations resolved to file names.
 - Compare mode asks each file in a folder the same question and answers with a table plus the
   agreements and differences.
+- Multi-step questions about a folder or the library ("which projects did I work on most recently
+  and what is each about?") are planned as sub-tasks. You see the plan first and can edit, add or
+  remove steps; while it runs each step shows its tool, a live trace and its finding, and you can
+  stop, skip, re-run or edit any step, answer a question a step asks you, or type a hint that
+  re-plans the remaining steps. Tools are read-only and confined to the library: list a folder,
+  search a scope, read a file, or run one allow-listed shell command (ls, find, grep, cat, head,
+  tail, wc, stat, du, file, sort, uniq) with no pipes or redirection. The answer is written from
+  every finding and keeps the sub-tasks underneath it. Both the planning and the shell steps can be
+  turned off in Settings › AI.
 - CSV rows keep their header row in every passage; tables in converted Office files do the same.
   Files above a size limit are skipped with a reason, OCR pages are capped, and a `.didoignore`
   file or the Exclude list in Settings keeps folders out of the sidebar and the index.

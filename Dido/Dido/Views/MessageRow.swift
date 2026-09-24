@@ -34,6 +34,9 @@ struct MessageRow: View {
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
                 bubble
+                if let trace = message.trace {
+                    AgentTraceView(trace: trace, onOpen: onOpenSource)
+                }
                 if !message.sources.isEmpty {
                     SourcesList(sources: message.sources, onOpen: onOpenSource)
                 }
@@ -47,6 +50,8 @@ struct MessageRow: View {
 
             if !isUser { Spacer(minLength: 60) }
         }
+        // The whole row, gaps included, counts as hovered so the mouse can travel from the bubble to the actions.
+        .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .onAppear {
             if AppState.shared.debugExpandWhy, message.details != nil { showWhy = true }
@@ -160,9 +165,14 @@ struct WhyThisAnswerView: View {
             text = "Answered by \(details.provider). Scope: \(details.scope). All \(details.passages.count) passages fitted the model's budget and were sent in document order (\(chars) characters)."
         case .search:
             text = "Answered by \(details.provider). Scope: \(details.scope). \(details.candidates) passages were ranked by meaning (vectors) and by exact words (full text), fused by rank, and the top \(details.passages.count) extracts were sent (\(chars) characters). Scores are cosine similarity with small boosts for the question's words and recently modified files."
+        case .plan:
+            text = "Answered by \(details.provider). Scope: \(details.scope). The question was split into \(details.candidates) sub-tasks, listed above; their findings (\(chars) characters) were combined into this answer. The passages below are the ones the search and read steps gathered."
         }
         if let query = details.retrievalQuery { text += " The follow-up was searched as: “\(query)”." }
         if let filter = details.filter { text += " Filter: \(filter)." }
+        if let superseded = details.supersededFiles {
+            text += " The question asked for the latest, so only the newest relevant documents were used. Left out: \(superseded.joined(separator: "; "))."
+        }
         return text
     }
 

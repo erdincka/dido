@@ -21,7 +21,7 @@ enum DebugLog {
 }
 
 /// Debug-only helper for visual verification without Screen Recording permission.
-/// Launch with `-DidoScreenshot /path/to/out.png` (optionally `-DidoAppearance dark`, `-DidoOpen /file`, `-DidoAsk "question"`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`, `-DidoSearch text`, `-DidoOpenFirstSource YES`, `-DidoQuickAsk \"question\"`, `-DidoDebugLog /path.log`, `-DidoExpandWhy YES`, `-DidoPreviewMode document`, `-DidoAskThen \"follow-up\"`, `-DidoThenOpenSource 3`, `-DidoCompare YES`, `-DidoScreenshotDelay 30`); `-DidoOpen library` opens the whole-library chat
+/// Launch with `-DidoScreenshot /path/to/out.png` (optionally `-DidoAppearance dark`, `-DidoOpen /file`, `-DidoAsk "question"`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`, `-DidoSearch text`, `-DidoOpenFirstSource YES`, `-DidoQuickAsk \"question\"`, `-DidoDebugLog /path.log`, `-DidoExpandWhy YES`, `-DidoPreviewMode document`, `-DidoAskThen \"follow-up\"`, `-DidoThenOpenSource 3`, `-DidoCompare YES`, `-DidoPlan YES` (always plan sub-tasks), `-DidoAutoRun YES` (run the plan without review), `-DidoStoreDirectory /folder` (a separate store, so tests leave the real one alone), `-DidoScreenshotDelay 30`); `-DidoOpen library` opens the whole-library chat
 /// and the app writes a PNG of its main window after a short delay, then quits.
 @MainActor
 final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
@@ -54,6 +54,8 @@ final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
         AppState.shared.debugFollowUpQuestion = defaults.string(forKey: "DidoAskThen")
         AppState.shared.debugThenOpenSource = defaults.object(forKey: "DidoThenOpenSource") as? Int
         AppState.shared.debugCompare = defaults.bool(forKey: "DidoCompare")
+        AppState.shared.debugForcePlan = defaults.bool(forKey: "DidoPlan")
+        AppState.shared.debugAutoRunPlan = defaults.bool(forKey: "DidoAutoRun")
         if let search = defaults.string(forKey: "DidoSearch") {
             AppState.shared.searchText = search
         }

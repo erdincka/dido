@@ -127,7 +127,7 @@ enum AppleModelStatus: Sendable, Equatable {
 @available(macOS 26.0, *)
 @Generable
 struct CitedAnswer {
-    @Guide(description: "The answer in Markdown. Cite passages inline as [n] where n is a passage number from the context.")
+    @Guide(description: "The complete answer in Markdown, taken from the passages' text. For a configuration, specification or design, list every component with its count and value. Never answer with only a file name, a passage label or a single number. Cite passages inline as [n] where n is a passage number from the context.")
     var answer: String
     @Guide(description: "Numbers of the context passages the answer relies on, in order of importance. Empty when none apply.")
     var citations: [Int]

@@ -31,6 +31,8 @@ struct AnswerDetails: Codable, Hashable, Sendable {
         case whole
         /// The passages were ranked by similarity to the question and the best were sent.
         case search
+        /// The question was split into sub-tasks whose findings were combined.
+        case plan
     }
 
     let provider: String
@@ -44,6 +46,8 @@ struct AnswerDetails: Codable, Hashable, Sendable {
     /// The standalone query used for retrieval when the question was rewritten from a follow-up.
     var retrievalQuery: String?
     var filter: String?
+    /// Older versions left out because the question asked for the latest, as "old name → newest name".
+    var supersededFiles: [String]?
 }
 
 /// A chat message as shown in the UI. Persisted through `ChatStore`.
@@ -54,14 +58,17 @@ struct ChatMessage: Identifiable, Hashable, Sendable {
     let createdAt: Date
     var sources: [Citation]
     var details: AnswerDetails?
+    /// The sub-tasks behind a planned answer.
+    var trace: AgentTrace?
 
-    init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date(), sources: [Citation] = [], details: AnswerDetails? = nil) {
+    init(id: UUID = UUID(), role: ChatRole, content: String, createdAt: Date = Date(), sources: [Citation] = [], details: AnswerDetails? = nil, trace: AgentTrace? = nil) {
         self.id = id
         self.role = role
         self.content = content
         self.createdAt = createdAt
         self.sources = sources
         self.details = details
+        self.trace = trace
     }
 }
 

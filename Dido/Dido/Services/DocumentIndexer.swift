@@ -99,10 +99,22 @@ actor DocumentIndexer {
         guard let writer = await indexWriter() else { return }
         let started = Date()
         var source = "file"
-        if await !VectorIndex.shared.load(expectedModel: provider.identifier) {
+        var loaded = await VectorIndex.shared.load(expectedModel: provider.identifier)
+        if loaded {
+            // Files saved by earlier builds could bring back passages of re-indexed or removed files.
+            let stored = await writer.chunkCount(forModel: provider.identifier)
+            let rows = await VectorIndex.shared.count
+            if rows > stored {
+                logger.notice("Vector index file has \(rows) rows but the store has \(stored) chunks; rebuilding it")
+                DebugLog.write("vector index: file has \(rows) rows, store \(stored); rebuilding")
+                loaded = false
+            }
+        }
+        if !loaded {
             source = "store"
             let entries = await writer.entries(forModel: provider.identifier)
             await VectorIndex.shared.replaceAll(entries, model: provider.identifier)
+            await VectorIndex.shared.save()
         }
         let count = await VectorIndex.shared.count
         if await FullTextIndex.shared.count == 0, count > 0 {

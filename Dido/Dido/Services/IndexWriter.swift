@@ -111,6 +111,12 @@ actor IndexWriter {
         return documents.map(\.path).filter { !FileManager.default.fileExists(atPath: $0) }
     }
 
+    /// How many chunks of indexed documents were embedded with `model`; an upper bound on the vector index's rows.
+    func chunkCount(forModel model: String) -> Int {
+        let descriptor = FetchDescriptor<DocumentChunk>(predicate: #Predicate { $0.document?.embeddingModel == model && $0.document?.isIndexed == true })
+        return (try? modelContext.fetchCount(descriptor)) ?? 0
+    }
+
     /// Every embedded chunk produced with `model`, for loading the vector index at launch.
     func entries(forModel model: String) -> [IndexEntry] {
         var descriptor = FetchDescriptor<DocumentChunk>(predicate: #Predicate { $0.document?.embeddingModel == model && $0.document?.isIndexed == true })

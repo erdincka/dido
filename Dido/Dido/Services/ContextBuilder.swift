@@ -10,11 +10,13 @@ struct RetrievedContext: Sendable {
     let candidates: Int
     let retrievalQuery: String?
     let filter: RetrievalFilter
+    var superseded: [String] = []
 
     /// The record kept with the reply.
     func details(provider: String, scope: String) -> AnswerDetails {
         AnswerDetails(provider: provider, scope: scope, mode: mode, candidates: candidates, contextCharacters: text.count,
-                      passages: citations, retrievalQuery: retrievalQuery, filter: filter.isEmpty ? nil : filter.summary)
+                      passages: citations, retrievalQuery: retrievalQuery, filter: filter.isEmpty ? nil : filter.summary,
+                      supersededFiles: superseded.isEmpty ? nil : superseded)
     }
 }
 
@@ -40,6 +42,12 @@ struct ContextBuilder: Sendable {
         DebugLog.write("context: item indexed after \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
 
         let scope = item.searchScope
+        var filter = filter
+        var superseded: [String] = []
+        let wantsLatest = DocumentVersions.asksForLatest(question)
+        if wantsLatest {
+            (filter, superseded) = await Self.leavingOutOlderVersions(in: scope, filter: filter)
+        }
         var passages = await VectorIndex.shared.entries(in: scope, filter: filter)
         let candidates = passages.count
         let total = passages.reduce(0) { $0 + $1.text.count }
@@ -47,14 +55,30 @@ struct ContextBuilder: Sendable {
         var scores: [UUID: Float] = [:]
         var textMatches: Set<UUID> = []
         var retrievalQuery: String?
+        /// Opening passages of the newest documents, sent first and in document order for "latest" questions.
+        var openingIDs: Set<UUID> = []
 
         if passages.isEmpty {
             passages = await fallbackEntries(for: item, indexer: indexer)
         } else if total > budget {
             mode = .search
-            let query = await LLMService.shared.retrievalQuery(for: question, history: history)
+            // A disputed or outdated earlier answer must not leak into the search query.
+            let rewriteHistory = LLMService.distrustsEarlierAnswers(question) ? history.filter { $0.role == .user } : history
+            let query = await LLMService.shared.retrievalQuery(for: question, history: rewriteHistory)
             if query != question { retrievalQuery = query }
-            let hits = await hybridSearch(query, scope: scope, filter: filter, embedding: embedding)
+            var hits = await hybridSearch(query, scope: scope, filter: filter, embedding: embedding)
+            if wantsLatest, let newest = Self.newestDocuments(among: hits.map(\.entry)) {
+                // Search again inside the newest relevant documents only, so their detail fills the budget,
+                // and add their opening passages, where summaries and results usually sit.
+                let scopePaths = Set(passages.map(\.path))
+                filter.excludedPaths.formUnion(scopePaths.subtracting(newest.kept))
+                superseded += newest.leftOut
+                hits = await hybridSearch(query, scope: scope, filter: filter, embedding: embedding)
+                let opening = Self.openingPassages(of: newest.kept, in: passages, budget: budget / 2)
+                openingIDs = Set(opening.map(\.chunkID))
+                let found = Set(hits.map(\.entry.chunkID))
+                hits += opening.filter { !found.contains($0.chunkID) }.map { RankedHit(entry: $0, score: 0, matchedText: false) }
+            }
             passages = hits.map(\.entry)
             for hit in hits {
                 scores[hit.entry.chunkID] = hit.score
@@ -62,17 +86,31 @@ struct ContextBuilder: Sendable {
             }
         }
 
-        let extracts = mode == .search ? Self.merge(passages, scores: scores, textMatches: textMatches, gap: maxMergeGap) : passages.map { Extract(entry: $0, last: $0.ordinal, score: 1, matchedText: false) }
+        var extracts = mode == .search ? Self.merge(passages, scores: scores, textMatches: textMatches, gap: maxMergeGap) : passages.map { Extract(entry: $0, last: $0.ordinal, score: 1, matchedText: false) }
+        if !openingIDs.isEmpty {
+            // Opening passages first so the budget never cuts them; the chosen extracts are then put in document order.
+            extracts = extracts.filter { openingIDs.contains($0.entry.chunkID) } + extracts.filter { !openingIDs.contains($0.entry.chunkID) }
+        }
+
+        var chosen: [(extract: Extract, block: String)] = []
+        var used = 0
+        for extract in extracts {
+            var label = extract.last > extract.entry.ordinal ? "parts \(extract.entry.ordinal + 1)–\(extract.last + 1)" : "part \(extract.entry.ordinal + 1)"
+            if let date = DocumentVersions.dateLabel(filename: extract.entry.filename, modified: extract.entry.modified) { label += ", \(date)" }
+            let block = "\(extract.entry.filename), \(label)\n\(extract.text)"
+            guard used + block.count + 6 <= budget else { break }
+            chosen.append((extract, block))
+            used += block.count + 6
+        }
+        if !openingIDs.isEmpty {
+            chosen.sort { ($0.extract.entry.path, $0.extract.entry.ordinal) < ($1.extract.entry.path, $1.extract.entry.ordinal) }
+        }
 
         var citations: [Citation] = []
         var lines: [String] = []
-        var used = 0
-        for (offset, extract) in extracts.enumerated() {
-            let label = extract.last > extract.entry.ordinal ? "parts \(extract.entry.ordinal + 1)–\(extract.last + 1)" : "part \(extract.entry.ordinal + 1)"
-            let block = "[\(offset + 1)] \(extract.entry.filename), \(label)\n\(extract.text)"
-            guard used + block.count <= budget else { break }
-            lines.append(block)
-            used += block.count
+        for (offset, item) in chosen.enumerated() {
+            let extract = item.extract
+            lines.append("[\(offset + 1)] \(item.block)")
             citations.append(Citation(index: offset + 1, path: extract.entry.path, filename: extract.entry.filename, ordinal: extract.entry.ordinal,
                                       start: extract.entry.start, end: extract.end, score: extract.score,
                                       ordinalEnd: extract.last > extract.entry.ordinal ? extract.last : nil,
@@ -99,7 +137,60 @@ struct ContextBuilder: Sendable {
         let text = lines.isEmpty ? "\(header)\n\(empty)" : "\(header)\n\n" + lines.joined(separator: "\n\n")
         logger.notice("Context for \(item.name): \(citations.count) extracts (\(mode.rawValue)) from \(candidates) candidates, \(used) characters")
         DebugLog.write("context: \(citations.count) extracts (\(mode)) from \(candidates) candidates after \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
-        return RetrievedContext(text: text, citations: citations, images: images, mode: mode, candidates: candidates, retrievalQuery: retrievalQuery, filter: filter)
+        return RetrievedContext(text: text, citations: citations, images: images, mode: mode, candidates: candidates, retrievalQuery: retrievalQuery, filter: filter, superseded: superseded)
+    }
+
+    /// The first passages of each file, in order, sharing `budget` characters between the files.
+    static func openingPassages(of paths: Set<String>, in entries: [IndexEntry], budget: Int) -> [IndexEntry] {
+        guard !paths.isEmpty else { return [] }
+        let share = budget / paths.count
+        var opening: [IndexEntry] = []
+        for path in paths.sorted() {
+            var used = 0
+            for entry in entries.filter({ $0.path == path }).sorted(by: { $0.ordinal < $1.ordinal }) {
+                guard used + entry.text.count <= share else { break }
+                opening.append(entry)
+                used += entry.text.count
+            }
+        }
+        return opening
+    }
+
+    /// Days within which documents count as equally recent.
+    private static let recencyWindowDays: Double = 3
+
+    /// Among the files that matched, the ones dated within a few days of the newest, and notes on the older ones.
+    /// Nil when every matching file is equally recent.
+    static func newestDocuments(among entries: [IndexEntry]) -> (kept: Set<String>, leftOut: [String])? {
+        var dates: [String: (name: String, date: Date)] = [:]
+        for entry in entries where dates[entry.path] == nil {
+            guard let date = DocumentVersions.nameDate(entry.filename) ?? entry.modified else { continue }
+            dates[entry.path] = (entry.filename, date)
+        }
+        guard let newest = dates.values.map(\.date).max() else { return nil }
+        let cutoff = newest.addingTimeInterval(-recencyWindowDays * 86_400)
+        let kept = Set(dates.filter { $0.value.date >= cutoff }.keys)
+        let older = dates.filter { $0.value.date < cutoff }
+        guard !older.isEmpty else { return nil }
+        let notes = older.values.sorted { $0.date > $1.date }.map { file in
+            "\(file.name) (\(DocumentVersions.dateLabel(filename: file.name, modified: file.date) ?? "older"))"
+        }
+        DebugLog.write("context: latest question, kept \(kept.count) newest files, left out \(older.count) older ones")
+        return (kept, notes)
+    }
+
+    /// Adds the older versions of every document in the scope to the filter's exclusions.
+    private static func leavingOutOlderVersions(in scope: SearchScope, filter: RetrievalFilter) async -> (RetrievalFilter, [String]) {
+        let entries = await VectorIndex.shared.entries(in: scope, filter: filter)
+        var files: [String: Date?] = [:]
+        for entry in entries where files[entry.path] == nil { files[entry.path] = entry.modified }
+        let older = DocumentVersions.superseded(files.map { (path: $0.key, modified: $0.value) })
+        guard !older.isEmpty else { return (filter, []) }
+        var narrowed = filter
+        narrowed.excludedPaths.formUnion(older.keys)
+        let notes = older.map { "\(URL(fileURLWithPath: $0.key).lastPathComponent) → \($0.value)" }.sorted()
+        DebugLog.write("context: left out \(older.count) older versions")
+        return (narrowed, notes)
     }
 
     // MARK: - Indexing on demand
