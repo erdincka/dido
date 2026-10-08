@@ -34,10 +34,14 @@ struct ContextBuilder: Sendable {
 
     func build(for item: SelectedItem, question: String, history: [ChatMessage] = [], budget: Int, includeImages: Bool, filter: RetrievalFilter = RetrievalFilter()) async -> RetrievedContext {
         let indexer = DocumentIndexer.shared
+        guard let library = await LibraryManager.shared.index(for: item.libraryID) else {
+            return RetrievedContext(text: "\(Self.header(for: item))\n(This library is not available. Add it again in Settings › Libraries.)",
+                                    citations: [], images: [], mode: .whole, candidates: 0, retrievalQuery: nil, filter: filter)
+        }
         let embedding = await LLMService.shared.makeEmbeddingProvider()
         let chunkProfile = await IndexSettings.shared.chunker.profile
         let started = Date()
-        await indexer.ensureVectorIndexLoaded()
+        await indexer.ensureLoaded(item.libraryID)
         await ensureIndexed(item, indexer: indexer, model: embedding.identifier, chunkProfile: chunkProfile)
         DebugLog.write("context: item indexed after \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
 
@@ -46,9 +50,9 @@ struct ContextBuilder: Sendable {
         var superseded: [String] = []
         let wantsLatest = DocumentVersions.asksForLatest(question)
         if wantsLatest {
-            (filter, superseded) = await Self.leavingOutOlderVersions(in: scope, filter: filter)
+            (filter, superseded) = await Self.leavingOutOlderVersions(in: scope, filter: filter, vectors: library.vectors)
         }
-        var passages = await VectorIndex.shared.entries(in: scope, filter: filter)
+        var passages = await library.vectors.entries(in: scope, filter: filter)
         let candidates = passages.count
         let total = passages.reduce(0) { $0 + $1.text.count }
         var mode = AnswerDetails.Mode.whole
@@ -66,14 +70,14 @@ struct ContextBuilder: Sendable {
             let rewriteHistory = LLMService.distrustsEarlierAnswers(question) ? history.filter { $0.role == .user } : history
             let query = await LLMService.shared.retrievalQuery(for: question, history: rewriteHistory)
             if query != question { retrievalQuery = query }
-            var hits = await hybridSearch(query, scope: scope, filter: filter, embedding: embedding)
+            var hits = await hybridSearch(query, scope: scope, filter: filter, embedding: embedding, library: library)
             if wantsLatest, let newest = Self.newestDocuments(among: hits.map(\.entry)) {
                 // Search again inside the newest relevant documents only, so their detail fills the budget,
                 // and add their opening passages, where summaries and results usually sit.
                 let scopePaths = Set(passages.map(\.path))
                 filter.excludedPaths.formUnion(scopePaths.subtracting(newest.kept))
                 superseded += newest.leftOut
-                hits = await hybridSearch(query, scope: scope, filter: filter, embedding: embedding)
+                hits = await hybridSearch(query, scope: scope, filter: filter, embedding: embedding, library: library)
                 let opening = Self.openingPassages(of: newest.kept, in: passages, budget: budget / 2)
                 openingIDs = Set(opening.map(\.chunkID))
                 let found = Set(hits.map(\.entry.chunkID))
@@ -127,17 +131,21 @@ struct ContextBuilder: Sendable {
             }
         }
 
-        let header: String
-        switch item.kind {
-        case .file: header = "[File: \(item.name)]"
-        case .folder: header = "[Folder: \(item.name)]"
-        case .library: header = "[Whole library]"
-        }
+        let header = Self.header(for: item)
         let empty = item.isLibrary ? "(Nothing is indexed yet. Index the library from Settings or wait for the background scan.)" : "(No text could be extracted.)"
         let text = lines.isEmpty ? "\(header)\n\(empty)" : "\(header)\n\n" + lines.joined(separator: "\n\n")
         logger.notice("Context for \(item.name): \(citations.count) extracts (\(mode.rawValue)) from \(candidates) candidates, \(used) characters")
         DebugLog.write("context: \(citations.count) extracts (\(mode)) from \(candidates) candidates after \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
         return RetrievedContext(text: text, citations: citations, images: images, mode: mode, candidates: candidates, retrievalQuery: retrievalQuery, filter: filter, superseded: superseded)
+    }
+
+    /// The line that tells the model what the passages were taken from.
+    static func header(for item: SelectedItem) -> String {
+        switch item.kind {
+        case .file: return "[File: \(item.name)]"
+        case .folder: return "[Folder: \(item.name)]"
+        case .library: return "[Whole library: \(item.name)]"
+        }
     }
 
     /// The first passages of each file, in order, sharing `budget` characters between the files.
@@ -180,8 +188,8 @@ struct ContextBuilder: Sendable {
     }
 
     /// Adds the older versions of every document in the scope to the filter's exclusions.
-    private static func leavingOutOlderVersions(in scope: SearchScope, filter: RetrievalFilter) async -> (RetrievalFilter, [String]) {
-        let entries = await VectorIndex.shared.entries(in: scope, filter: filter)
+    private static func leavingOutOlderVersions(in scope: SearchScope, filter: RetrievalFilter, vectors: VectorIndex) async -> (RetrievalFilter, [String]) {
+        let entries = await vectors.entries(in: scope, filter: filter)
         var files: [String: Date?] = [:]
         for entry in entries where files[entry.path] == nil { files[entry.path] = entry.modified }
         let older = DocumentVersions.superseded(files.map { (path: $0.key, modified: $0.value) })
@@ -230,19 +238,19 @@ struct ContextBuilder: Sendable {
     }
 
     /// Vector and full-text results fused by reciprocal rank (k = 60); the displayed score stays the cosine.
-    private func hybridSearch(_ query: String, scope: SearchScope, filter: RetrievalFilter, embedding: any EmbeddingProvider) async -> [RankedHit] {
+    private func hybridSearch(_ query: String, scope: SearchScope, filter: RetrievalFilter, embedding: any EmbeddingProvider, library: LibraryIndex) async -> [RankedHit] {
         let keywords = query.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { $0.count > 3 }
         var vectorHits: [SearchHit] = []
         do {
             if let vector = try await embedding.embed([query]).first {
-                vectorHits = await VectorIndex.shared.search(query: vector, scope: scope, limit: topK * 3, minimumScore: minimumScore, keywords: keywords, filter: filter)
+                vectorHits = await library.vectors.search(query: vector, scope: scope, limit: topK * 3, minimumScore: minimumScore, keywords: keywords, filter: filter)
             }
         } catch {
             logger.error("Question embedding failed: \(error.localizedDescription)")
         }
-        let textHits = await FullTextIndex.shared.search(query, limit: topK * 3)
+        let textHits = await library.fullText.search(query, limit: topK * 3)
 
         var fused: [UUID: (score: Double, entry: IndexEntry?, cosine: Float, text: Bool)] = [:]
         for (rank, hit) in vectorHits.enumerated() {
@@ -254,12 +262,12 @@ struct ContextBuilder: Sendable {
                 existing.score += contribution
                 existing.text = true
                 fused[hit.chunkID] = existing
-            } else if let entry = await VectorIndex.shared.entry(chunkID: hit.chunkID), scope.contains(entry.path), filter.allows(entry) {
+            } else if let entry = await library.vectors.entry(chunkID: hit.chunkID), scope.contains(entry.path), filter.allows(entry) {
                 fused[hit.chunkID] = (contribution, entry, 0, true)
             }
         }
         if vectorHits.isEmpty && textHits.isEmpty {
-            return await VectorIndex.shared.entries(in: scope, filter: filter).prefix(topK).map { RankedHit(entry: $0, score: 0, matchedText: false) }
+            return await library.vectors.entries(in: scope, filter: filter).prefix(topK).map { RankedHit(entry: $0, score: 0, matchedText: false) }
         }
         return fused.values
             .compactMap { value in value.entry.map { RankedHit(entry: $0, score: value.cosine, matchedText: value.text) }.map { ($0, value.score) } }

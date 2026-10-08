@@ -1,12 +1,13 @@
 import SwiftUI
 import SwiftData
 
-/// Every file the indexer has seen, with its status and reason, plus maintenance actions.
+/// Every file the indexer has seen in one library, with its status and reason, plus maintenance actions.
 struct IndexDashboardView: View {
-    private let store = DataStore.shared
+    private let manager = LibraryManager.shared
     private let appState = AppState.shared
     private let progress = IndexProgress.shared
 
+    @State private var libraryID: UUID?
     @State private var documents: [DocumentSummary] = []
     @State private var filter: IndexStatus?
     @State private var confirmClear = false
@@ -68,19 +69,43 @@ struct IndexDashboardView: View {
             }
         }
         .navigationTitle("Index dashboard")
-        .task { reload() }
+        .task {
+            libraryID = appState.currentLibrary?.id
+            reload()
+        }
+        .onChange(of: libraryID) { _, _ in reload() }
         .onChange(of: progress.isIndexing) { _, _ in reload() }
-        .confirmationDialog("Clear the whole index?", isPresented: $confirmClear) {
+        .onChange(of: manager.activationKey) { _, _ in
+            if !manager.active.contains(where: { $0.id == libraryID }) { libraryID = manager.active.first?.id }
+        }
+        .confirmationDialog("Clear the index of \(library?.name ?? "this library")?", isPresented: $confirmClear) {
             Button("Clear index", role: .destructive) {
-                Task { await DocumentIndexer.shared.removeAll(); reload() }
+                guard let id = libraryID else { return }
+                Task { await DocumentIndexer.shared.removeAll(in: id); reload() }
             }
         } message: {
-            Text("Every extracted passage and embedding is deleted. Chat history is kept. Files are indexed again on demand or by the background scan.")
+            Text("Every extracted passage and embedding of this library is deleted. Chat history is kept. Files are indexed again on demand or by the background scan.")
         }
     }
 
+    private var library: LibraryRecord? { libraryID.flatMap { manager.library(id: $0) } }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                if manager.active.count > 1 {
+                    Picker("Library", selection: $libraryID) {
+                        ForEach(manager.active) { library in
+                            Text(library.name).tag(Optional(library.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 220)
+                } else if let library {
+                    Label(library.name, systemImage: "books.vertical").font(.headline)
+                }
+                Spacer()
+            }
             HStack(spacing: 8) {
                 FilterChip(label: "All", count: documents.count, selected: filter == nil) { filter = nil }
                 ForEach(counts, id: \.0) { status, count in
@@ -94,22 +119,24 @@ struct IndexDashboardView: View {
                 }
             }
             HStack(spacing: 8) {
-                Button("Index the library now") {
-                    guard let root = appState.rootURL else { return }
+                Button("Index this library now") {
+                    guard let id = libraryID, let root = manager.root(of: id) else { return }
                     Task { await DocumentIndexer.shared.index(root); reload() }
                 }
-                .disabled(appState.rootURL == nil || progress.isIndexing)
+                .disabled(libraryID == nil || progress.isIndexing)
                 Button("Remove missing files") {
+                    guard let id = libraryID else { return }
                     isWorking = true
                     Task {
-                        let removed = await DocumentIndexer.shared.removeMissing()
+                        let removed = await DocumentIndexer.shared.removeMissing(in: id)
                         appState.showNotification("Removed \(removed) missing file\(removed == 1 ? "" : "s") from the index.", type: .success)
                         reload()
                         isWorking = false
                     }
                 }
-                .disabled(isWorking)
+                .disabled(isWorking || libraryID == nil)
                 Button("Clear index…", role: .destructive) { confirmClear = true }
+                    .disabled(libraryID == nil)
                 Spacer()
                 Button("Refresh") { reload() }
             }
@@ -118,7 +145,10 @@ struct IndexDashboardView: View {
     }
 
     private func reload() {
-        guard let context = store.context else { return }
+        guard let id = libraryID, let context = manager.index(for: id)?.store.context else {
+            documents = []
+            return
+        }
         let fetched = (try? context.fetch(FetchDescriptor<Document>())) ?? []
         documents = fetched.map {
             DocumentSummary(id: $0.id, filename: $0.filename, path: $0.path, status: $0.status, detail: $0.detail,

@@ -1,15 +1,24 @@
 import SwiftUI
 
-/// The native Settings window: General, Intelligence and Index tabs. Changes apply immediately.
+/// The native Settings window: Libraries, General, Intelligence and Index tabs. Changes apply immediately.
+/// The chosen tab is remembered; a Debug launch can pick one with `-settingsTab libraries`.
 struct SettingsView: View {
+    @AppStorage("settingsTab") private var selection = "libraries"
+
     var body: some View {
-        TabView {
+        TabView(selection: $selection) {
+            LibrariesSettingsTab()
+                .tabItem { Label("Libraries", systemImage: "books.vertical") }
+                .tag("libraries")
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag("general")
             IntelligenceSettingsTab()
                 .tabItem { Label("Intelligence", systemImage: "sparkles") }
+                .tag("intelligence")
             IndexSettingsTab()
                 .tabItem { Label("Index", systemImage: "tray.full") }
+                .tag("index")
         }
         .frame(width: 640)
     }
@@ -24,43 +33,15 @@ struct GeneralSettingsTab: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    Text("Library folder")
-                    Text(appState.pkmRootPath.isEmpty ? "Not set" : appState.pkmRootPath)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Button("Choose…", action: chooseRoot)
-                }
-                Toggle("Index the library in the background and watch for changes", isOn: $indexSettings.autoIndex)
+                Toggle("Index the libraries in the background and watch for changes", isOn: $indexSettings.autoIndex)
                 Toggle("Show Dido in the menu bar for quick questions", isOn: $appState.showMenuBarExtra)
             } footer: {
-                Text("Dido reads the library folder in place and never modifies it. Indexed text and chat history live in ~/Library/Application Support/Dido.")
+                Text("Dido reads your library folders in place and never modifies them. Indexed text and chat history live in ~/Library/Application Support/Dido.")
             }
         }
         .formStyle(.grouped)
-        .onChange(of: indexSettings.autoIndex) { _, enabled in
-            LibraryMonitor.shared.deactivate()
-            LibraryMonitor.shared.activate(root: appState.activateRoot(), autoIndex: enabled)
-        }
-        .onChange(of: indexSettings.excludePatterns) { _, _ in
-            LibraryMonitor.shared.deactivate()
-            LibraryMonitor.shared.activate(root: appState.activateRoot(), autoIndex: indexSettings.autoIndex)
-        }
-    }
-
-    private func chooseRoot() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            appState.pkmRootBookmark = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-            appState.pkmRootPath = url.path
-            appState.showNotification("Library folder set to \(url.lastPathComponent)", type: .success)
-        }
+        .onChange(of: indexSettings.autoIndex) { _, _ in LibraryManager.shared.reactivate() }
+        .onChange(of: indexSettings.excludePatterns) { _, _ in LibraryManager.shared.reactivate() }
     }
 }
 
@@ -153,8 +134,8 @@ struct IntelligenceSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: llm.embeddingSource) { _, _ in Task { await DocumentIndexer.shared.loadVectorIndex() } }
-        .onChange(of: llm.serverEmbeddingModel) { _, _ in Task { await DocumentIndexer.shared.loadVectorIndex() } }
+        .onChange(of: llm.embeddingSource) { _, _ in Task { await DocumentIndexer.shared.loadIndexes() } }
+        .onChange(of: llm.serverEmbeddingModel) { _, _ in Task { await DocumentIndexer.shared.loadIndexes() } }
         .task {
             if llm.availableModels.isEmpty { await llm.fetchAvailableModels() }
         }
@@ -179,6 +160,7 @@ struct IntelligenceSettingsTab: View {
 struct IndexSettingsTab: View {
     @Bindable private var indexSettings = IndexSettings.shared
     private let appState = AppState.shared
+    private let manager = LibraryManager.shared
     private let progress = IndexProgress.shared
 
     var body: some View {
@@ -205,7 +187,7 @@ struct IndexSettingsTab: View {
             } header: {
                 Text("Exclude")
             } footer: {
-                Text("One glob pattern per line, matched against file names and paths relative to the library, for example `Archive/`, `*.log` or `Drafts/**`. A `.didoignore` file in the library root works the same way. Changes apply when the library is next activated or scanned.")
+                Text("One glob pattern per line, matched against file names and paths relative to each library, for example `Archive/`, `*.log` or `Drafts/**`. A `.didoignore` file in a library folder works the same way for that library. Changes apply when the libraries are next scanned.")
             }
 
             Section("Index") {
@@ -217,11 +199,10 @@ struct IndexSettingsTab: View {
                         Spacer()
                         Button("Cancel") { Task { await DocumentIndexer.shared.cancel() } }
                     } else {
-                        Button("Index the library now") {
-                            guard let root = appState.rootURL else { return }
-                            Task { await DocumentIndexer.shared.index(root) }
+                        Button(manager.active.count > 1 ? "Index all libraries now" : "Index the library now") {
+                            Task { await DocumentIndexer.shared.indexAllLibraries() }
                         }
-                        .disabled(appState.rootURL == nil)
+                        .disabled(manager.active.isEmpty)
                         Button("Open index dashboard") { appState.showDashboard() }
                         Spacer()
                     }

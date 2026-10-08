@@ -58,7 +58,7 @@ final class AgentRunner {
         let llm = LLMService.shared
         provider = llm.makeAnswerProvider()
         planner = AgentPlanner(provider: provider, shellAllowed: llm.allowShellSteps)
-        toolbox = AgentToolbox(root: root, budget: max(provider.contextBudget - 1_500, 2_000), shellAllowed: llm.allowShellSteps)
+        toolbox = AgentToolbox(root: root, libraryID: item.libraryID, budget: max(provider.contextBudget - 1_500, 2_000), shellAllowed: llm.allowShellSteps)
     }
 
     // MARK: - Derived state

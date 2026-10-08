@@ -1,20 +1,24 @@
 # Dido
 
-Dido is a personal macOS app for asking questions about the documents in a folder. Point it at a
-library folder, pick a file or folder in the sidebar, and chat about it with a local or remote
-language model. Answers stream in and every conversation is kept per file.
+Dido is a personal macOS app for asking questions about the documents in your folders. Add one or
+more library folders, pick a file, a folder or a whole library in the sidebar, and chat about it with
+a local or remote language model. Answers stream in and every conversation is kept per file.
 
 Personal, non-commercial use only. Not an HPE product.
 
 ## What it does
 
-- Browses a library folder in a sidebar, loading folders as you expand them. Recent chats sit
-  above the library, and both sections collapse and stay collapsed between launches. The search field
-  matches file names and file contents, and a passage result opens the file with that passage
-  highlighted.
-- Indexes the whole library in the background at launch and watches it for changes, so new,
-  edited and deleted files are reflected within seconds. An index dashboard lists every file with
-  its status and reason, and offers reindex, remove-missing and clear.
+- Browses any number of library folders in a sidebar, one section per library, loading folders as
+  you expand them. Recent chats sit above the libraries, and every section collapses and stays
+  collapsed between launches. The search field matches file names and file contents across all
+  libraries, and a passage result opens the file with that passage highlighted.
+- Indexes each library separately, in the background at launch, and watches every library for
+  changes, so new, edited and deleted files are reflected within seconds. An index dashboard lists
+  every file of a library with its status and reason, and offers reindex, remove-missing and clear.
+- Libraries are managed in Settings › Libraries (or with Add Library Folder… in the Library menu,
+  where several folders can be chosen at once). Removing a library keeps its index, so adding the
+  folder again later needs no full scan; a removed library can also be re-indexed from scratch or
+  have its kept index deleted. Nested folders are refused so no file is indexed twice.
 - Extracts text from Markdown, plain text, code, CSV, JSON, HTML, PDF and RTF natively; from
   docx, pptx, xlsx and epub through [markitdown](https://github.com/microsoft/markitdown) when
   `uv` is installed (with a timeout and a clear message when it is missing); and from images and
@@ -62,7 +66,10 @@ Personal, non-commercial use only. Not an HPE product.
 - Keyboard: ⌘, Settings · ⇧⌘H Home · ⇧⌘L Ask the whole library · ⌘F Search · ⌥⌘P Toggle preview ·
   ⌘R Index current item again · ⇧⌘I Index dashboard · ⌘. Stop generating.
 
-Indexed text and embeddings live in a SwiftData store under `~/Library/Application Support/Dido`.
+Each library's index (SwiftData store, vector matrix, full-text table and chat history) lives in its
+own folder under `~/Library/Application Support/Dido/Libraries/<id>`, listed in `libraries.json`
+beside it. Nothing is ever written inside a library folder. Upgrading from 2.1 moves the single
+index into the first library's folder on first launch.
 
 ## Requirements
 

@@ -2,26 +2,33 @@ import Foundation
 import SQLite3
 import os
 
-/// A SQLite FTS5 index over passage text, kept beside the vector index for exact words, names and codes.
+/// A SQLite FTS5 index over one library's passage text, kept beside its vector index for exact words, names and codes.
 actor FullTextIndex {
-    static let shared = FullTextIndex()
-
     struct Hit: Sendable {
         let chunkID: UUID
         let rank: Double
     }
 
-    private var db: OpaquePointer?
+    private let fileURL: URL
+    /// Only touched inside the actor and in `deinit`, where no other task can reach it.
+    nonisolated(unsafe) private var db: OpaquePointer?
     private var opened = false
     private let logger = Logger(subsystem: "com.dido", category: "FullText")
 
-    private init() {}
+    /// - Parameter fileURL: the SQLite file, inside the library's folder under the app's directory.
+    init(fileURL: URL) {
+        self.fileURL = fileURL
+    }
+
+    deinit {
+        if let db { sqlite3_close(db) }
+    }
 
     /// Opens the database on first use; an actor's initialiser cannot call isolated methods.
     private func open() {
         guard !opened else { return }
         opened = true
-        let url = DataStore.storeDirectory.appendingPathComponent("fulltext.sqlite")
+        let url = fileURL
         var handle: OpaquePointer?
         if sqlite3_open(url.path, &handle) != SQLITE_OK {
             let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"

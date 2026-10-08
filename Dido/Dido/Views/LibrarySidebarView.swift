@@ -1,19 +1,21 @@
 import SwiftUI
 
-/// Home, the library tree (loaded folder by folder), name search and recent chats.
+/// Home, recent chats, and one section per library (loaded folder by folder), with name and content search.
 struct LibrarySidebarView: View {
     @Bindable var appState = AppState.shared
     private let chatStore = ChatStore.shared
+    private let manager = LibraryManager.shared
 
-    @State private var rootChildren: [FileItem] = []
-    @State private var searchResults: [FileItem] = []
+    @State private var children: [UUID: [FileItem]] = [:]
+    @State private var errors: [UUID: String] = [:]
+    @State private var loading: Set<UUID> = []
+    @State private var searchResults: [UUID: [FileItem]] = [:]
     @State private var passageResults: [IndexEntry] = []
-    @State private var isLoadingRoot = false
-    @State private var rootError: String?
 
-    /// Collapsed state survives relaunches; the library stays open while a search is active.
+    /// Collapsed state survives relaunches; every library stays open while a search is active.
     @AppStorage("sidebarRecentsExpanded") private var recentsExpanded = true
-    @AppStorage("sidebarLibraryExpanded") private var libraryExpanded = true
+    /// Ids of the libraries the user collapsed, comma-separated.
+    @AppStorage("sidebarCollapsedLibraries") private var collapsedLibraries = ""
 
     private var isSearching: Bool { !appState.searchText.isEmpty }
 
@@ -24,11 +26,6 @@ struct LibrarySidebarView: View {
                     Label("Home", systemImage: "sparkles")
                 }
                 .buttonStyle(.plain)
-                Button { appState.askLibrary() } label: {
-                    Label("Ask the whole library", systemImage: "books.vertical")
-                }
-                .buttonStyle(.plain)
-                .background(RoundedRectangle(cornerRadius: 5).fill(appState.activeItem?.isLibrary == true && !appState.showingDashboard ? Color.accentColor.opacity(0.15) : .clear))
             }
 
             if !chatStore.recentThreads.isEmpty && !isSearching {
@@ -39,8 +36,21 @@ struct LibrarySidebarView: View {
                 }
             }
 
-            Section("Library", isExpanded: isSearching ? .constant(true) : $libraryExpanded) {
-                libraryRows
+            if manager.active.isEmpty {
+                Section("Library") {
+                    Button { appState.addLibrariesWithPanel() } label: {
+                        Label("Add a library folder…", systemImage: "plus.circle")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            ForEach(manager.active) { library in
+                Section(isExpanded: isSearching ? .constant(true) : expansionBinding(for: library.id)) {
+                    libraryRows(library)
+                } header: {
+                    LibrarySectionHeader(library: library)
+                }
             }
 
             if isSearching && !passageResults.isEmpty {
@@ -60,78 +70,103 @@ struct LibrarySidebarView: View {
                 }
             }
         }
-        .task(id: appState.pkmRootBookmark ?? Data(appState.pkmRootPath.utf8)) { await loadRoot() }
+        .task(id: manager.activationKey) { await loadRoots() }
         .task(id: appState.searchText) { await runSearch() }
     }
 
     @ViewBuilder
-    private var libraryRows: some View {
-        if let root = appState.rootURL {
-            if !appState.searchText.isEmpty {
-                if searchResults.isEmpty {
-                    Text("No matching names").font(.caption).foregroundStyle(.secondary)
-                } else {
-                    ForEach(searchResults) { item in
-                        SidebarFileRow(item: item, subtitle: item.relativePath(to: root))
-                    }
-                }
-            } else if isLoadingRoot && rootChildren.isEmpty {
-                ProgressView().controlSize(.small)
-            } else if let rootError {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle")
-                    Text(rootError)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            } else if rootChildren.isEmpty {
-                Text("The library folder is empty").font(.caption).foregroundStyle(.secondary)
+    private func libraryRows(_ library: LibraryRecord) -> some View {
+        AskLibraryRow(library: library)
+        if isSearching {
+            let results = searchResults[library.id] ?? []
+            if results.isEmpty {
+                Text("No matching names").font(.caption).foregroundStyle(.secondary)
             } else {
-                ForEach(rootChildren) { item in
-                    SidebarNode(item: item)
+                ForEach(results) { item in
+                    SidebarFileRow(item: item, subtitle: item.relativePath(to: library.url))
                 }
             }
+        } else if loading.contains(library.id) && children[library.id] == nil {
+            ProgressView().controlSize(.small)
+        } else if let error = errors[library.id] {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                Text(error)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } else if (children[library.id] ?? []).isEmpty {
+            Text("The folder is empty").font(.caption).foregroundStyle(.secondary)
         } else {
-            Text("Choose a library folder in Settings").font(.caption).foregroundStyle(.secondary)
+            ForEach(children[library.id] ?? []) { item in
+                SidebarNode(item: item)
+            }
         }
     }
 
-    private func loadRoot() async {
-        guard let root = appState.activateRoot() else {
-            rootChildren = []
-            return
+    private var collapsedIDs: Set<String> {
+        Set(collapsedLibraries.split(separator: ",").map(String.init))
+    }
+
+    private func expansionBinding(for id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedIDs.contains(id.uuidString) },
+            set: { expanded in
+                var ids = collapsedIDs
+                if expanded { ids.remove(id.uuidString) } else { ids.insert(id.uuidString) }
+                collapsedLibraries = ids.sorted().joined(separator: ",")
+            }
+        )
+    }
+
+    private func loadRoots() async {
+        let libraries = manager.active
+        children = children.filter { entry in libraries.contains { $0.id == entry.key } }
+        errors = [:]
+        for library in libraries {
+            guard let root = manager.root(of: library.id) else { continue }
+            loading.insert(library.id)
+            do {
+                children[library.id] = try await FileSystemScanner.shared.children(of: root)
+            } catch {
+                children[library.id] = []
+                errors[library.id] = error.localizedDescription
+            }
+            loading.remove(library.id)
         }
-        isLoadingRoot = true
-        do {
-            rootChildren = try await FileSystemScanner.shared.children(of: root)
-            rootError = nil
-        } catch {
-            rootChildren = []
-            rootError = error.localizedDescription
-        }
-        isLoadingRoot = false
     }
 
     private func runSearch() async {
         let query = appState.searchText
-        guard !query.isEmpty, let root = appState.rootURL else {
-            searchResults = []
+        guard !query.isEmpty else {
+            searchResults = [:]
             passageResults = []
             return
         }
         try? await Task.sleep(for: .milliseconds(250))
         guard !Task.isCancelled else { return }
-        searchResults = await FileSystemScanner.shared.search(query, under: root)
-        var passages = await VectorIndex.shared.textSearch(query, limit: 12)
-        if query.count >= 8, let vector = try? await LLMService.shared.makeEmbeddingProvider().embed([query]).first {
-            let semantic = await VectorIndex.shared.search(query: vector, scope: .all, limit: 6, minimumScore: 0.2, keywords: [])
-            for hit in semantic where !passages.contains(where: { $0.chunkID == hit.entry.chunkID }) {
-                passages.append(hit.entry)
+        var vector: [Float]?
+        if query.count >= 8 {
+            vector = try? await LLMService.shared.makeEmbeddingProvider().embed([query]).first
+        }
+        var names: [UUID: [FileItem]] = [:]
+        var passages: [IndexEntry] = []
+        for library in manager.active {
+            guard let root = manager.root(of: library.id), let index = manager.index(for: library.id) else { continue }
+            names[library.id] = await FileSystemScanner.shared.search(query, under: root)
+            var found = await index.vectors.textSearch(query, limit: 12)
+            if let vector {
+                let semantic = await index.vectors.search(query: vector, scope: .all, limit: 6, minimumScore: 0.2, keywords: [])
+                for hit in semantic where !found.contains(where: { $0.chunkID == hit.entry.chunkID }) {
+                    found.append(hit.entry)
+                }
             }
+            passages += found
         }
         guard !Task.isCancelled else { return }
+        searchResults = names
         passageResults = passages
     }
 }
@@ -219,13 +254,12 @@ struct RecentThreadRow: View {
     @State private var renaming = false
     @State private var newName = ""
 
-    private var isActive: Bool { appState.activeItem?.id == thread.item.id && !appState.showingDashboard }
+    private var isActive: Bool { appState.activeItem?.id == thread.item?.id && !appState.showingDashboard }
 
     var body: some View {
         HStack {
             Button {
-                appState.activeItem = thread.item
-                appState.showingDashboard = false
+                if let item = thread.item { appState.open(item) }
             } label: {
                 HStack {
                     Image(systemName: thread.isLibrary ? "books.vertical" : (thread.isDirectory ? "folder" : "bubble.left.and.bubble.right")).foregroundStyle(.secondary)

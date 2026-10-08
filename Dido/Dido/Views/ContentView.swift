@@ -2,8 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Bindable var appState = AppState.shared
-    private let dataStore = DataStore.shared
-    private let indexSettings = IndexSettings.shared
+    private let manager = LibraryManager.shared
     @AppStorage("onboardingDone") private var onboardingDone = false
     @State private var showOnboarding = false
 
@@ -12,13 +11,12 @@ struct ContentView: View {
             splitView
             StatusbarView()
         }
-        .task { await DocumentIndexer.shared.loadVectorIndex() }
-        .task(id: appState.pkmRootBookmark ?? Data(appState.pkmRootPath.utf8)) {
-            let root = appState.activateRoot()
-            LibraryMonitor.shared.activate(root: root, autoIndex: indexSettings.autoIndex)
+        .task(id: manager.activationKey) {
+            manager.activate()
+            await DocumentIndexer.shared.loadIndexes()
         }
         .onAppear {
-            if !onboardingDone && appState.rootURL == nil { showOnboarding = true }
+            if !onboardingDone && manager.active.isEmpty { showOnboarding = true }
         }
         .sheet(isPresented: $showOnboarding) {
             OnboardingView { onboardingDone = true }
@@ -32,7 +30,7 @@ struct ContentView: View {
         } detail: {
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
-                    if let storeError = dataStore.storeError {
+                    ForEach(manager.storeErrors, id: \.self) { storeError in
                         StoreErrorBanner(message: storeError)
                     }
                     Group {
@@ -68,8 +66,8 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 Text("Dido")
                     .font(.system(.title, design: .rounded, weight: .bold))
-                Text(appState.rootURL == nil
-                     ? "Choose a library folder in Settings, then pick any file or folder in the sidebar to ask about it."
+                Text(manager.active.isEmpty
+                     ? "Add a library folder, then pick any file or folder in the sidebar to ask about it."
                      : "Select any file or folder in the sidebar to start a context-aware chat.")
                     .font(.system(.body, design: .rounded))
                     .foregroundStyle(.secondary)
@@ -78,7 +76,16 @@ struct ContentView: View {
             }
 
             HStack(spacing: 12) {
-                if appState.rootURL != nil {
+                if manager.active.isEmpty {
+                    Button {
+                        appState.addLibrariesWithPanel()
+                    } label: {
+                        Label("Add a library folder", systemImage: "plus.circle.fill")
+                            .padding(.horizontal)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                } else {
                     Button {
                         appState.askLibrary()
                     } label: {
@@ -101,7 +108,7 @@ struct ContentView: View {
     }
 }
 
-/// Persistent banner shown when the database could not be opened.
+/// Persistent banner shown when a library's database could not be opened.
 struct StoreErrorBanner: View {
     let message: String
 

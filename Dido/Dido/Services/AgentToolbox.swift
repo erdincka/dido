@@ -36,6 +36,8 @@ struct ToolOutput: Sendable {
 /// when it falls outside it or is excluded by the ignore rules.
 struct AgentToolbox: Sendable {
     let root: URL
+    /// The library the root belongs to, so searches use its index.
+    let libraryID: UUID
     /// Characters of tool output the model can take alongside the instructions.
     let budget: Int
     let shellAllowed: Bool
@@ -133,7 +135,9 @@ struct AgentToolbox: Sendable {
     }
 
     private func search(_ url: URL, query: String, label: String) async -> ToolOutput {
-        let item: SelectedItem = url == root ? .library(root: root) : SelectedItem(url: url)
+        let item = url == root
+            ? SelectedItem(url: root, name: root.lastPathComponent, kind: .library, libraryID: libraryID)
+            : SelectedItem(url: url, libraryID: libraryID)
         let context = await ContextBuilder().build(for: item, question: query, budget: budget, includeImages: false)
         let mode = context.mode == .whole ? "everything in scope fitted" : "ranked by meaning and exact words"
         return ToolOutput(text: context.text, citations: context.citations,

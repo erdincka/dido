@@ -21,7 +21,7 @@ enum DebugLog {
 }
 
 /// Debug-only helper for visual verification without Screen Recording permission.
-/// Launch with `-DidoScreenshot /path/to/out.png` (optionally `-DidoAppearance dark`, `-DidoOpen /file`, `-DidoAsk "question"`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`, `-DidoSearch text`, `-DidoOpenFirstSource YES`, `-DidoQuickAsk \"question\"`, `-DidoDebugLog /path.log`, `-DidoExpandWhy YES`, `-DidoPreviewMode document`, `-DidoAskThen \"follow-up\"`, `-DidoThenOpenSource 3`, `-DidoCompare YES`, `-DidoPlan YES` (always plan sub-tasks), `-DidoAutoRun YES` (run the plan without review), `-DidoStoreDirectory /folder` (a separate store, so tests leave the real one alone), `-DidoScreenshotDelay 30`); `-DidoOpen library` opens the whole-library chat
+/// Launch with `-DidoScreenshot /path/to/out.png` (optionally `-DidoAppearance dark`, `-DidoOpen /file`, `-DidoAsk "question"`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`, `-DidoSearch text`, `-DidoOpenFirstSource YES`, `-DidoQuickAsk \"question\"`, `-DidoDebugLog /path.log`, `-DidoExpandWhy YES`, `-DidoPreviewMode document`, `-DidoShowPreview YES` (open the preview pane), `-DidoAskThen \"follow-up\"`, `-DidoThenOpenSource 3`, `-DidoCompare YES`, `-DidoPlan YES` (always plan sub-tasks), `-DidoAutoRun YES` (run the plan without review), `-DidoStoreDirectory /folder` (a separate store, so tests leave the real one alone), `-DidoLibrary /folder` (adds a library; repeatable), `-DidoRemoveLibrary /folder` (removes one, keeping its index), `-DidoScreenshotDelay 30`); `-DidoOpen library` opens the current library's chat
 /// and the app writes a PNG of its main window after a short delay, then quits.
 @MainActor
 final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
@@ -67,6 +67,9 @@ final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
                 AppState.shared.selectFile(URL(fileURLWithPath: open))
             }
         }
+        if defaults.bool(forKey: "DidoShowPreview") {
+            AppState.shared.previewVisible = true
+        }
         guard let path = defaults.string(forKey: "DidoScreenshot") else { return }
         let delay = max(defaults.double(forKey: "DidoScreenshotDelay"), 4)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
@@ -87,7 +90,7 @@ final class DebugScreenshotDelegate: NSObject, NSApplicationDelegate {
     private static func capture(to path: String) {
         DebugLog.write("windows: " + NSApp.windows.map { "\(type(of: $0)) '\($0.title)' visible=\($0.isVisible) \(Int($0.frame.width))x\(Int($0.frame.height))" }.joined(separator: " | "))
         let candidates = NSApp.windows.filter { $0.isVisible && $0.contentView != nil && $0.frame.width > 400 }
-        let wanted = UserDefaults.standard.bool(forKey: "DidoShowSettings") ? candidates.first { $0.title.localizedCaseInsensitiveContains("settings") || $0.title.localizedCaseInsensitiveContains("general") } : nil
+        let wanted = UserDefaults.standard.bool(forKey: "DidoShowSettings") ? candidates.first { $0.title.localizedCaseInsensitiveContains("settings") || $0.title.localizedCaseInsensitiveContains("general") || $0.title.localizedCaseInsensitiveContains("libraries") } : nil
         guard let window = wanted ?? NSApp.keyWindow ?? NSApp.mainWindow ?? candidates.first else {
             DebugLog.write("capture: no window")
             return

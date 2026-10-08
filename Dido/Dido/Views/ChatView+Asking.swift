@@ -35,9 +35,12 @@ extension ChatView {
 
     // MARK: - Routing
 
+    /// The folder of the library this chat belongs to; sub-tasks are confined to it.
+    private var libraryRoot: URL? { LibraryManager.shared.root(of: selectedItem.libraryID) }
+
     /// Library and folder questions that need browsing, dates or several places are planned as sub-tasks.
     private func shouldPlan(_ question: String) async -> Bool {
-        guard selectedItem.isDirectory, llm.autoPlan, appState.rootURL != nil else { return false }
+        guard selectedItem.isDirectory, llm.autoPlan, libraryRoot != nil else { return false }
         if appState.debugForcePlan { return true }
         let planner = AgentPlanner(provider: llm.makeAnswerProvider(), shellAllowed: llm.allowShellSteps)
         let decision = await planner.shouldPlan(question: question, item: selectedItem)
@@ -87,7 +90,7 @@ extension ChatView {
     // MARK: - Sub-tasks
 
     private func runPlanned(_ question: String, history: [ChatMessage]) async {
-        guard let root = appState.rootURL else {
+        guard let root = libraryRoot else {
             await answerDirectly(question, history: history)
             return
         }

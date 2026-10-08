@@ -87,6 +87,9 @@ Ordered by expected value for a personal knowledge-scan tool. Ticked items lande
 - [x] Streaming for the on-device model with token deltas rather than cumulative snapshots.
 
 ### Preview and library
+- [x] Several libraries, each with its own index under the app's directory; removing one keeps its index
+      and adding the folder again restores it; re-index from scratch per library (2026-10-08).
+- [ ] Ask across every library at once (today a chat is scoped to one library).
 - [ ] Highlight the cited range inside rendered Markdown, not only the raw text.
 - [ ] Page thumbnails and a mini-map for long PDFs; jump between all cited ranges in a document.
 - [ ] Pin favourite folders and show file modification dates in the sidebar.

@@ -2,12 +2,10 @@ import Foundation
 import SwiftData
 import os
 
-/// Owns the SwiftData container for the index and the chat history.
-/// The store lives in `~/Library/Application Support/Dido/index.store`, never in the shared default path.
+/// Owns the SwiftData container of one library: its documents, passages and chat history.
+/// Every library has its own store at `~/Library/Application Support/Dido/Libraries/<id>/index.store`.
 @Observable @MainActor
 final class DataStore {
-    static let shared = DataStore()
-
     let container: ModelContainer?
     let storeURL: URL
     /// Set when the container could not be opened. Shown as a banner in the main window.
@@ -15,7 +13,7 @@ final class DataStore {
 
     private let logger = Logger(subsystem: "com.dido", category: "DataStore")
 
-    /// `~/Library/Application Support/Dido`, home of the store, the vector index and the full-text index.
+    /// `~/Library/Application Support/Dido`: the library registry and, below `Libraries`, one folder per library.
     nonisolated static var storeDirectory: URL {
         #if DEBUG
         if let override = UserDefaults.standard.string(forKey: "DidoStoreDirectory"), !override.isEmpty {
@@ -27,13 +25,26 @@ final class DataStore {
         return support.appendingPathComponent("Dido", isDirectory: true)
     }
 
-    private init() {
-        let folder = Self.storeDirectory
-        let url = folder.appendingPathComponent("index.store")
+    /// True when a Debug launch pointed the app at another directory with `-DidoStoreDirectory`.
+    nonisolated static var isOverridden: Bool {
+        #if DEBUG
+        return !(UserDefaults.standard.string(forKey: "DidoStoreDirectory") ?? "").isEmpty
+        #else
+        return false
+        #endif
+    }
+
+    /// Where every library keeps its index, one folder per library id.
+    nonisolated static var librariesDirectory: URL {
+        storeDirectory.appendingPathComponent("Libraries", isDirectory: true)
+    }
+
+    init(directory: URL) {
+        let url = directory.appendingPathComponent("index.store")
         storeURL = url
 
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let schema = Schema([Document.self, DocumentChunk.self, ChatThread.self, ChatMessageRecord.self])
             let configuration = ModelConfiguration("Dido", schema: schema, url: url)
             container = try ModelContainer(for: schema, configurations: [configuration])

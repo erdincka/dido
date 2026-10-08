@@ -25,24 +25,36 @@ with an LLM. Not an HPE project: keep the native macOS look and feel, not HPE br
   without Screen Recording permission:
   `Dido.app/Contents/MacOS/Dido -DidoScreenshot out.png -DidoAppearance dark -DidoOpen /file -DidoAsk "question" -DidoScreenshotDelay 30`
   Other flags: `-DidoOpen library`, `-DidoSearch text`, `-DidoShowSettings YES`, `-DidoShowDashboard YES`,
-  `-DidoOpenFirstSource YES`, `-DidoQuickAsk "question"` (menu bar path, headless),
-  `-DidoDebugLog /path.log` (step log from the hook and the quick-ask model). Launch with
+  `-DidoOpenFirstSource YES`, `-DidoShowPreview YES`, `-DidoQuickAsk "question"` (menu bar path, headless),
+  `-DidoDebugLog /path.log` (step log from the hook, the indexer and the quick-ask model), `-DidoLibrary /folder`
+  (adds a library; repeatable), `-DidoRemoveLibrary /folder` (removes one, keeping its index),
+  `-DidoLegacyLibrary /folder` (runs the 2.1 migration against a scratch store), `-settingsTab libraries`. Launch with
   `open -n Dido.app --args …`, not by executing the binary: after the Mac sleeps, a shell's launch
   context goes stale and SwiftUI opens no windows. When the screen is locked the hook falls back to
   rendering the view hierarchy, which omits sidebar vibrancy and can be stale. Launch-argument overrides such as
-  `-pkmRootPath /folder -selectedModel name -answerSource server` are not persisted, but test
+  `-selectedModel name -answerSource server` are not persisted, but test
   chats and indexed files do land in the real store and must be removed afterwards.
 
 ## Decisions (2026-09-22)
 
-- **Purpose:** knowledge scan and retrieval over a chosen root folder. Not a note editor.
+- **Purpose:** knowledge scan and retrieval over chosen root folders. Not a note editor.
+- **Libraries (2026-10-08):** any number of root folders, each indexed on its own. `LibraryManager` keeps the
+  registry (`libraries.json`) and opens one `LibraryIndex` per active library: a `DataStore`, `IndexWriter`,
+  `VectorIndex` and `FullTextIndex` in `~/Library/Application Support/Dido/Libraries/<id>/`. Nothing is written
+  inside a library folder. Removing a library marks it `removedAt` and keeps its folder; adding the same path
+  again restores it (matched by path or bookmark); "Delete index" forgets it. Nested libraries are refused.
+  Every `SelectedItem` carries its `libraryID`; files are routed to a library by canonical path
+  (`resolvingSymlinksInPath`, which also strips `/private`), so store that form everywhere. Chat threads live
+  in their library's store. The 2.1 single store is moved into the first library's folder on first launch
+  (skipped under `-DidoStoreDirectory`). A chat is scoped to one library; cross-library search is not built.
 - **Local first:** on-device embeddings and Apple Foundation Models are the default. An
   OpenAI-compatible endpoint (Ollama, OpenAI) is optional and configured in Settings.
 - **Not sandboxed:** personal use only. The app may launch helper processes.
 - **Formats:** md, txt and code, pdf, rtf stay native. docx, pptx, xlsx and epub go through
   `markitdown` via `uvx`, located on PATH with a configurable override.
 - **Dependencies:** a Markdown rendering package is allowed. Ask before adding anything else.
-- **Library scope:** the whole-library chat relies on the background index and never indexes on demand.
+- **Library scope:** the whole-library chat (one per library) relies on the background index and never indexes
+  on demand.
 - **Chunking:** whole sentences packed to about 900 characters with a 150-character overlap. The profile is stored on each document, so changing it re-chunks files on the next scan. Older stored defaults (500/50, 600/80) are migrated on launch.
 - **Default prompt:** `LLMService.defaultSystemPrompt`; a stored copy of an earlier default is replaced on launch, a user's own prompt is kept.
 - **Retrieval:** hybrid. `VectorIndex` (unit vectors in a flat matrix, one vDSP matrix-vector product per query, persisted to `vectors.index`) and `FullTextIndex` (SQLite FTS5 in `fulltext.sqlite`, system libsqlite3) fused by reciprocal rank; follow-ups are rewritten into standalone queries by the answer provider; adjacent passages merge into extracts. A scope smaller than the model's context budget is sent whole, in order. Approximate nearest-neighbour search is deliberately not implemented: the matrix product handles hundreds of thousands of passages in milliseconds.

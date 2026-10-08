@@ -36,12 +36,9 @@ final class AppState {
         didSet { UserDefaults.standard.set(showMenuBarExtra, forKey: "showMenuBarExtra") }
     }
 
-    var pkmRootPath: String = UserDefaults.standard.string(forKey: "pkmRootPath") ?? "" {
-        didSet { UserDefaults.standard.set(pkmRootPath, forKey: "pkmRootPath") }
-    }
-
-    var pkmRootBookmark: Data? = UserDefaults.standard.data(forKey: "pkmRootBookmark") {
-        didSet { UserDefaults.standard.set(pkmRootBookmark, forKey: "pkmRootBookmark") }
+    /// The library the user worked in last: the default for ⇧⌘L, the menu bar question and the dashboard.
+    var currentLibraryID: UUID? = UserDefaults.standard.string(forKey: "currentLibraryID").flatMap(UUID.init) {
+        didSet { UserDefaults.standard.set(currentLibraryID?.uuidString, forKey: "currentLibraryID") }
     }
 
     // MARK: - Notifications
@@ -73,54 +70,83 @@ final class AppState {
         }
     }
 
-    // MARK: - Library root
+    // MARK: - Libraries
 
-    /// The library root, resolved from the saved bookmark when there is one.
-    /// A stale bookmark is regenerated so it keeps working across moves and renames.
-    var rootURL: URL? {
-        if let data = pkmRootBookmark {
-            var isStale = false
-            if let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale) {
-                if isStale, let fresh = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
-                    pkmRootBookmark = fresh
-                }
-                return url
-            }
-        }
-        return pkmRootPath.isEmpty ? nil : URL(fileURLWithPath: pkmRootPath)
+    /// The current library while it is active, else the first active one.
+    var currentLibrary: LibraryRecord? {
+        let manager = LibraryManager.shared
+        if let id = currentLibraryID, let record = manager.library(id: id), record.isActive { return record }
+        return manager.active.first
     }
 
-    private var accessedRoot: URL?
+    /// Lets the user pick one or more folders and adds each as a library.
+    func addLibrariesWithPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose one or more folders to add as libraries. Each is indexed on its own."
+        panel.prompt = "Add"
+        panel.begin { response in
+            guard response == .OK else { return }
+            self.addLibraries(panel.urls)
+        }
+    }
 
-    /// Resolves the root and keeps security-scoped access open until the root changes.
-    func activateRoot() -> URL? {
-        guard let root = rootURL else {
-            accessedRoot?.stopAccessingSecurityScopedResource()
-            accessedRoot = nil
-            return nil
+    /// Adds each folder as a library and reports what happened in one toast.
+    func addLibraries(_ urls: [URL]) {
+        var added: [String] = []
+        var problems: [String] = []
+        for url in urls {
+            do {
+                added.append(try LibraryManager.shared.add(url).name)
+            } catch {
+                problems.append(error.localizedDescription)
+            }
         }
-        if accessedRoot != root {
-            accessedRoot?.stopAccessingSecurityScopedResource()
-            _ = root.startAccessingSecurityScopedResource()
-            accessedRoot = root
+        if currentLibraryID == nil { currentLibraryID = LibraryManager.shared.active.first?.id }
+        if !problems.isEmpty {
+            showNotification(problems.joined(separator: " "), type: .error)
+        } else if added.count == 1, let name = added.first {
+            showNotification("Added the library \(name).", type: .success)
+        } else if !added.isEmpty {
+            showNotification("Added \(added.count) libraries.", type: .success)
         }
-        return root
+    }
+
+    /// Takes a library out of the sidebar; its index is kept for when it is added again.
+    func removeLibrary(_ id: UUID) {
+        guard let record = LibraryManager.shared.library(id: id) else { return }
+        LibraryManager.shared.remove(id)
+        showNotification("Removed \(record.name). Its index is kept; add it again from Settings › Libraries.")
+    }
+
+    // MARK: - Navigation
+
+    /// Shows the chat for an item and remembers its library as the current one.
+    func open(_ item: SelectedItem) {
+        activeItem = item
+        currentLibraryID = item.libraryID
+        showingDashboard = false
     }
 
     func selectFile(_ url: URL) {
-        activeItem = SelectedItem(url: url)
-        showingDashboard = false
+        guard let library = LibraryManager.shared.library(containing: url.path) else {
+            showNotification("\(url.lastPathComponent) is not inside any of your libraries.", type: .error)
+            return
+        }
+        open(SelectedItem(url: url, libraryID: library.id))
     }
 
-    /// Opens the chat that searches every indexed file.
-    func askLibrary() {
-        guard let root = rootURL else {
-            showNotification("Choose a library folder in Settings first.", type: .error)
+    /// Opens the chat that searches every indexed file of a library, the current one by default.
+    func askLibrary(_ id: UUID? = nil) {
+        let manager = LibraryManager.shared
+        guard let record = id.flatMap({ manager.library(id: $0) }) ?? currentLibrary, let root = manager.root(of: record.id) else {
+            showNotification("Add a library folder in Settings first.", type: .error)
             openSettings()
             return
         }
-        activeItem = SelectedItem.library(root: root)
-        showingDashboard = false
+        open(SelectedItem.library(record, root: root))
     }
 
     func showHome() {
@@ -150,9 +176,10 @@ final class AppState {
         Task { await DocumentIndexer.shared.index(item.url) }
     }
 
+    /// Totals across every active library.
     func updateStats() {
-        let store = DataStore.shared
-        indexedCount = store.indexedDocumentCount()
-        indexSize = ByteCountFormatter.string(fromByteCount: store.storeSizeOnDisk(), countStyle: .file)
+        let manager = LibraryManager.shared
+        indexedCount = manager.indexedDocumentCount()
+        indexSize = ByteCountFormatter.string(fromByteCount: manager.storeSizeOnDisk(), countStyle: .file)
     }
 }

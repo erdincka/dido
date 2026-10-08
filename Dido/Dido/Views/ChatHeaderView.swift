@@ -48,11 +48,14 @@ struct ChatHeaderView: View {
                     .background(compareMode ? Color.accentColor.opacity(0.9) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
                     .help(compareMode ? "Compare mode is on: each file is asked separately" : "Compare the files in this folder")
                 }
-                if !item.isDirectory {
-                    Button { showPreview.toggle() } label: { Image(systemName: "sidebar.trailing") }
-                        .buttonStyle(.bordered)
-                        .help(showPreview ? "Hide preview" : "Show preview")
+                Button { showPreview.toggle() } label: {
+                    Image(systemName: "sidebar.trailing")
+                        .foregroundStyle(showPreview ? Color.white : Color.primary)
                 }
+                .buttonStyle(.bordered)
+                .tint(showPreview ? Color.accentColor : nil)
+                .background(showPreview ? Color.accentColor.opacity(0.9) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                .help(showPreview ? "Hide preview (⌥⌘P)" : "Show preview (⌥⌘P)")
                 if Self.quickLookExtensions.contains(item.url.pathExtension.lowercased()) {
                     Button { previewURL = item.url } label: { Image(systemName: "eye") }
                         .buttonStyle(.bordered)
@@ -74,12 +77,12 @@ struct ChatHeaderView: View {
         .padding()
         .background(.ultraThinMaterial)
         .task(id: item.id) {
-            fileTypes = item.isDirectory ? await VectorIndex.shared.fileTypes(in: item.searchScope) : []
+            fileTypes = item.isDirectory ? (await LibraryManager.shared.index(for: item.libraryID)?.vectors.fileTypes(in: item.searchScope)) ?? [] : []
         }
     }
 
     private var subtitle: String {
-        var text = item.isLibrary ? "Every indexed file" : (item.isDirectory ? "Folder context" : "Document context")
+        var text = item.isLibrary ? "Every indexed file in this library" : (item.isDirectory ? "Folder context" : "Document context")
         if compareMode { text += " · compare mode" }
         if !appState.retrievalFilter.isEmpty { text += " · " + appState.retrievalFilter.summary }
         return text
@@ -134,7 +137,6 @@ struct FileInfoPopover: View {
     let item: SelectedItem
     let onClose: () -> Void
 
-    private let store = DataStore.shared
     private let progress = IndexProgress.shared
 
     var body: some View {
@@ -198,7 +200,7 @@ struct FileInfoPopover: View {
         }
         if item.isDirectory {
             Text("Folders are indexed file by file.").font(.caption).foregroundStyle(.secondary)
-        } else if let document = store.document(for: item.url.path) {
+        } else if let document = LibraryManager.shared.index(for: item.libraryID)?.store.document(for: item.url.path) {
             StatusTag(status: document.status)
             Text("\(document.chunks.count) chunks · \(document.dateIndexed.formatted(date: .abbreviated, time: .shortened))")
                 .font(.caption2)

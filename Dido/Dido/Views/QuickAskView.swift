@@ -2,10 +2,12 @@ import SwiftUI
 import MarkdownUI
 import os
 
-/// Asks the whole library from the menu bar and keeps the exchange in the library's chat thread.
+/// Asks a whole library from the menu bar and keeps the exchange in that library's chat thread.
 @Observable @MainActor
 final class QuickAskModel {
     var question = ""
+    /// The library to ask; the one the user worked in last by default.
+    var libraryID: UUID? = AppState.shared.currentLibrary?.id
     var answer = ""
     var sources: [Citation] = []
     var error: String?
@@ -17,11 +19,12 @@ final class QuickAskModel {
     func ask() {
         let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isGenerating else { return }
-        guard let root = AppState.shared.rootURL else {
-            error = "Choose a library folder in Settings first."
+        let manager = LibraryManager.shared
+        guard let record = libraryID.flatMap({ manager.library(id: $0) }) ?? AppState.shared.currentLibrary, let root = manager.root(of: record.id) else {
+            error = "Add a library folder in Settings first."
             return
         }
-        let item = SelectedItem.library(root: root)
+        let item = SelectedItem.library(record, root: root)
         let store = ChatStore.shared
         let history = store.messages(for: item)
         let userMessage = ChatMessage(role: .user, content: text)
@@ -78,6 +81,7 @@ final class QuickAskModel {
 struct QuickAskView: View {
     @State private var model = QuickAskModel()
     private let llm = LLMService.shared
+    private let manager = LibraryManager.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -127,6 +131,17 @@ struct QuickAskView: View {
             HStack {
                 Button("Open in Dido", action: openInDido)
                     .controlSize(.small)
+                if manager.active.count > 1 {
+                    Picker("Library", selection: $model.libraryID) {
+                        ForEach(manager.active) { library in
+                            Text(library.name).tag(Optional(library.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .frame(maxWidth: 170)
+                    .help("Which library to ask")
+                }
                 Spacer()
                 Text(llm.answerProviderName)
                     .font(.caption2)
@@ -144,6 +159,6 @@ struct QuickAskView: View {
             // The main window was closed: ask AppKit for a new one, as File > New Window would.
             NSApp.sendAction(#selector(NSResponder.newWindowForTab(_:)), to: nil, from: nil)
         }
-        AppState.shared.askLibrary()
+        AppState.shared.askLibrary(model.libraryID)
     }
 }

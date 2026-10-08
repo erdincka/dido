@@ -63,11 +63,10 @@ struct RetrievalFilter: Sendable, Hashable, Codable {
     }
 }
 
-/// Cosine search over every embedded chunk with one Accelerate matrix-vector product per query.
+/// Cosine search over every embedded chunk of one library with one Accelerate matrix-vector product per query.
 /// Rows are unit vectors in a flat matrix; removed rows are tombstoned and compacted lazily.
 actor VectorIndex {
-    static let shared = VectorIndex()
-
+    private let fileURL: URL
     private var entries: [IndexEntry] = []
     private var matrix: [Float] = []
     private var alive: [Bool] = []
@@ -77,7 +76,10 @@ actor VectorIndex {
     private var saveTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.dido", category: "VectorIndex")
 
-    private init() {}
+    /// - Parameter fileURL: where the index is persisted, inside the library's folder under the app's directory.
+    init(fileURL: URL) {
+        self.fileURL = fileURL
+    }
 
     var count: Int { entries.count - tombstones }
 
@@ -122,7 +124,7 @@ actor VectorIndex {
         matrix = []
         alive = []
         tombstones = 0
-        try? FileManager.default.removeItem(at: Self.storageURL)
+        try? FileManager.default.removeItem(at: fileURL)
     }
 
     private func append(_ entry: IndexEntry) {
@@ -243,10 +245,6 @@ actor VectorIndex {
     // MARK: - Persistence
 
     /// A compact file beside the store: a JSON header with the metadata, then the raw Float32 matrix.
-    static var storageURL: URL {
-        DataStore.storeDirectory.appendingPathComponent("vectors.index")
-    }
-
     private struct Header: Codable {
         let version: Int
         let model: String
@@ -275,7 +273,7 @@ actor VectorIndex {
             data.append(Data(bytes: &length, count: 8))
             data.append(json)
             matrix.withUnsafeBufferPointer { data.append(Data(buffer: $0)) }
-            try data.write(to: Self.storageURL, options: .atomic)
+            try data.write(to: fileURL, options: .atomic)
             logger.info("Saved vector index: \(self.entries.count) rows in \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
         } catch {
             logger.error("Saving the vector index failed: \(error.localizedDescription)")
@@ -284,7 +282,7 @@ actor VectorIndex {
 
     /// Loads the persisted index when it was built with `model`. Returns false when it must be rebuilt.
     func load(expectedModel model: String) -> Bool {
-        guard let data = try? Data(contentsOf: Self.storageURL, options: .mappedIfSafe), data.count > 12,
+        guard let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe), data.count > 12,
               data.prefix(4) == Data("DIDO".utf8) else { return false }
         let length = Int(data.subdata(in: 4..<12).withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) })
         guard data.count >= 12 + length, let header = try? JSONDecoder().decode(Header.self, from: data.subdata(in: 12..<(12 + length))),

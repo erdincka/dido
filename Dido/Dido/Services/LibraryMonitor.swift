@@ -2,44 +2,56 @@ import Foundation
 import CoreServices
 import os
 
-/// Watches the library root with FSEvents and feeds coalesced changes to the indexer.
-/// Also runs the background scan at launch when auto-indexing is on.
+/// Watches every active library folder with FSEvents and feeds coalesced changes to the indexer.
+/// Also runs the background scan of a library when it starts being watched, if auto-indexing is on.
 @Observable @MainActor
 final class LibraryMonitor {
     static let shared = LibraryMonitor()
 
-    private(set) var watchedRoot: URL?
-    private var watcher: FSEventWatcher?
+    private(set) var watchedRoots: [UUID: URL] = [:]
+    private var watchers: [UUID: FSEventWatcher] = [:]
     private let logger = Logger(subsystem: "com.dido", category: "Monitor")
 
     private init() {}
 
-    /// Starts watching `root`, replacing any previous watch, and kicks off the background scan.
-    func activate(root: URL?, autoIndex: Bool) {
-        let rules = root.map { IgnoreRules.load(root: $0, extra: IndexSettings.shared.excludePatterns) } ?? .empty
-        Task { await FileSystemScanner.shared.configure(root: root, rules: rules) }
-        if watchedRoot != root {
-            watcher?.stop()
-            watcher = nil
-            watchedRoot = root
-            if let root, autoIndex {
-                let watcher = FSEventWatcher(root: root) { paths in
-                    Task { await DocumentIndexer.shared.applyChanges(paths: paths) }
-                }
-                watcher.start()
-                self.watcher = watcher
-                logger.info("Watching \(root.path)")
-            }
+    /// Watches `libraries`, dropping watches for libraries that were removed or moved, and scans newly watched ones.
+    func activate(_ libraries: [(id: UUID, root: URL)], autoIndex: Bool) {
+        let extra = IndexSettings.shared.excludePatterns
+        let roots = libraries.map { (root: $0.root, rules: IgnoreRules.load(root: $0.root, extra: extra)) }
+        Task { await FileSystemScanner.shared.configure(roots: roots) }
+
+        for (id, root) in watchedRoots where !autoIndex || !libraries.contains(where: { $0.id == id && $0.root == root }) {
+            stop(id)
         }
-        if let root, autoIndex {
-            Task { await DocumentIndexer.shared.index(root, quiet: true, reason: .background) }
+        guard autoIndex else { return }
+
+        var toScan: [URL] = []
+        for library in libraries where watchedRoots[library.id] == nil {
+            let watcher = FSEventWatcher(root: library.root) { paths in
+                Task { await DocumentIndexer.shared.applyChanges(paths: paths) }
+            }
+            watcher.start()
+            watchers[library.id] = watcher
+            watchedRoots[library.id] = library.root
+            toScan.append(library.root)
+            logger.info("Watching \(library.root.path)")
+        }
+        guard !toScan.isEmpty else { return }
+        Task {
+            for root in toScan {
+                await DocumentIndexer.shared.index(root, quiet: true, reason: .background)
+            }
         }
     }
 
     func deactivate() {
-        watcher?.stop()
-        watcher = nil
-        watchedRoot = nil
+        for id in Array(watchers.keys) { stop(id) }
+    }
+
+    private func stop(_ id: UUID) {
+        watchers[id]?.stop()
+        watchers[id] = nil
+        watchedRoots[id] = nil
     }
 }
 

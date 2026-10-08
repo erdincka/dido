@@ -39,13 +39,14 @@ struct StatusbarView: View {
 
             Spacer()
 
-            if !appState.pkmRootPath.isEmpty {
-                Text(appState.pkmRootPath)
+            if let library = appState.currentLibrary {
+                Text(library.path)
                     .font(.caption2)
                     .foregroundStyle(.secondary.opacity(0.8))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: 260)
+                    .help("Current library: \(library.name)")
             }
         }
         .padding(.horizontal)

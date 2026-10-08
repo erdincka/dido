@@ -19,7 +19,7 @@ struct PreviewPane: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(target.lastPathComponent).font(.headline).lineLimit(1).truncationMode(.middle)
+                Text(citation?.url.lastPathComponent ?? item.name).font(.headline).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 Picker("", selection: $mode) {
                     Text("Passage").tag(Mode.passage)
@@ -34,6 +34,9 @@ struct PreviewPane: View {
             Group {
                 if mode == .passage, let citation {
                     PassageView(passages: passages, highlighted: citation.ordinal, highlightedEnd: citation.lastOrdinal)
+                } else if citation == nil, item.isDirectory {
+                    ContentUnavailableView("No source open", systemImage: "doc.text.magnifyingglass",
+                                           description: Text("Open a source from an answer to preview it here."))
                 } else {
                     DocumentView(url: target, passage: citation.flatMap { c in passages.first { $0.ordinal == c.ordinal } })
                 }

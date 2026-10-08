@@ -99,6 +99,8 @@ final class ChatThread {
     var isPinned: Bool = false
     /// A user-chosen title shown instead of the file or folder name.
     var customName: String?
+    /// The library whose store holds this thread; filled in by `ChatStore` for threads from before 2.2.
+    var libraryID: UUID?
     var createdAt: Date
     var updatedAt: Date
 
@@ -117,8 +119,10 @@ final class ChatThread {
         self.updatedAt = Date()
     }
 
-    var item: SelectedItem {
-        SelectedItem(url: URL(fileURLWithPath: path), name: name, kind: isLibrary ? .library : (isDirectory ? .folder : .file))
+    /// The item the thread is about, once the thread knows its library.
+    var item: SelectedItem? {
+        guard let libraryID else { return nil }
+        return SelectedItem(url: URL(fileURLWithPath: path), name: name, kind: isLibrary ? .library : (isDirectory ? .folder : .file), libraryID: libraryID)
     }
 }
 

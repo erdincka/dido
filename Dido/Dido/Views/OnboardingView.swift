@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// First launch: choose the library folder, check the answer source, start the first scan.
+/// First launch: add the first library folder, check the answer source, start the first scan.
 struct OnboardingView: View {
-    @Bindable private var appState = AppState.shared
+    private let appState = AppState.shared
+    private let manager = LibraryManager.shared
     @Bindable private var llm = LLMService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var testing = false
@@ -23,16 +24,16 @@ struct OnboardingView: View {
                 }
             }
 
-            step(number: 1, title: "Choose your library folder", done: appState.rootURL != nil) {
+            step(number: 1, title: "Add your first library folder", done: !manager.active.isEmpty) {
                 HStack {
-                    Text(appState.pkmRootPath.isEmpty ? "No folder chosen yet" : appState.pkmRootPath)
+                    Text(manager.active.map(\.path).joined(separator: ", ").isEmpty ? "No folder chosen yet" : manager.active.map(\.path).joined(separator: ", "))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer()
-                    Button("Choose…", action: chooseRoot)
+                    Button("Choose…") { appState.addLibrariesWithPanel() }
                 }
-                Text("Dido reads the folder in place and never changes your files. Subfolders are included; add a .didoignore file to skip some.")
+                Text("Dido reads the folder in place and never changes your files; the index lives in Dido's own folder. Subfolders are included; add a .didoignore file to skip some. More libraries can be added later in Settings › Libraries.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -64,7 +65,7 @@ struct OnboardingView: View {
             }
 
             step(number: 3, title: "Start", done: false) {
-                Text("Dido indexes the folder in the background and keeps the index current as files change. You can ask about a file straight away; the whole-library chat fills up as the scan progresses.")
+                Text("Dido indexes each library in the background and keeps the index current as files change. You can ask about a file straight away; the library chat fills up as the scan progresses.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -74,7 +75,7 @@ struct OnboardingView: View {
                 Spacer()
                 Button("Start indexing") { finish() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(appState.rootURL == nil)
+                    .disabled(manager.active.isEmpty)
             }
         }
         .padding(24)
@@ -91,18 +92,6 @@ struct OnboardingView: View {
             }
             VStack(alignment: .leading, spacing: 6, content: content)
                 .padding(.leading, 26)
-        }
-    }
-
-    private func chooseRoot() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            appState.pkmRootBookmark = try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-            appState.pkmRootPath = url.path
         }
     }
 

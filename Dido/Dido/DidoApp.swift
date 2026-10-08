@@ -19,8 +19,9 @@ struct DidoApp: App {
                     .keyboardShortcut("h", modifiers: [.command, .shift])
                 Button("Ask the Whole Library") { AppState.shared.askLibrary() }
                     .keyboardShortcut("l", modifiers: [.command, .shift])
-                Button("Search Library") { AppState.shared.searchPresented = true }
+                Button("Search Libraries") { AppState.shared.searchPresented = true }
                     .keyboardShortcut("f", modifiers: .command)
+                Button("Add Library Folder…") { AppState.shared.addLibrariesWithPanel() }
                 Divider()
                 Button("Toggle Preview") { AppState.shared.previewVisible.toggle() }
                     .keyboardShortcut("p", modifiers: [.command, .option])
@@ -29,10 +30,8 @@ struct DidoApp: App {
                 Divider()
                 Button("Index Dashboard") { AppState.shared.showDashboard() }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
-                Button("Index the Library Now") {
-                    if let root = AppState.shared.rootURL {
-                        Task { await DocumentIndexer.shared.index(root) }
-                    }
+                Button("Index All Libraries Now") {
+                    Task { await DocumentIndexer.shared.indexAllLibraries() }
                 }
             }
             TextEditingCommands()

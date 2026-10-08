@@ -8,9 +8,9 @@ enum ScanError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noPermission(let url):
-            return "Dido is not allowed to read \(url.lastPathComponent). Allow it under System Settings › Privacy & Security › Files and Folders, or choose another folder in Settings."
+            return "Dido is not allowed to read \(url.lastPathComponent). Allow it under System Settings › Privacy & Security › Files and Folders, or remove the library in Settings › Libraries."
         case .missing(let url):
-            return "\(url.lastPathComponent) no longer exists. Choose the library folder again in Settings."
+            return "\(url.lastPathComponent) no longer exists. Add the library folder again in Settings › Libraries."
         case .other(let reason):
             return reason
         }
@@ -21,19 +21,23 @@ enum ScanError: Error, LocalizedError {
 actor FileSystemScanner {
     static let shared = FileSystemScanner()
 
-    private let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey]
-    private var rules = IgnoreRules.empty
-    private var rootPath = ""
+    private struct Root {
+        /// The folder's path with a trailing slash, so prefix checks never match a sibling with a longer name.
+        let prefix: String
+        let rules: IgnoreRules
+    }
 
-    /// Sets the library root and its ignore rules; paths are matched relative to the root.
-    func configure(root: URL?, rules: IgnoreRules) {
-        rootPath = root.map { $0.path.hasSuffix("/") ? $0.path : $0.path + "/" } ?? ""
-        self.rules = rules
+    private let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey]
+    private var roots: [Root] = []
+
+    /// Sets the library folders and their ignore rules; paths are matched relative to the folder that contains them.
+    func configure(roots: [(root: URL, rules: IgnoreRules)]) {
+        self.roots = roots.map { Root(prefix: $0.root.path.hasSuffix("/") ? $0.root.path : $0.root.path + "/", rules: $0.rules) }
     }
 
     func isIgnored(_ url: URL) -> Bool {
-        guard !rootPath.isEmpty, url.path.hasPrefix(rootPath) else { return false }
-        return rules.isIgnored(relativePath: String(url.path.dropFirst(rootPath.count)))
+        guard let root = roots.first(where: { url.path.hasPrefix($0.prefix) }) else { return false }
+        return root.rules.isIgnored(relativePath: String(url.path.dropFirst(root.prefix.count)))
     }
 
     /// Immediate children of a folder: folders first, then files, both in Finder order.

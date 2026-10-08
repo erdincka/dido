@@ -81,6 +81,8 @@ struct SelectedItem: Identifiable, Hashable, Sendable {
     let url: URL
     let name: String
     let kind: Kind
+    /// The library the item belongs to; its index answers questions about the item.
+    let libraryID: UUID
 
     /// Stable across launches: the path, prefixed for the library so it never collides with the root folder.
     var id: String { kind == .library ? "library:" + url.path : url.path }
@@ -95,20 +97,23 @@ struct SelectedItem: Identifiable, Hashable, Sendable {
         }
     }
 
-    init(url: URL) {
+    init(url: URL, libraryID: UUID) {
         self.url = url
         self.name = url.lastPathComponent
         let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
         self.kind = isDirectory ? .folder : .file
+        self.libraryID = libraryID
     }
 
-    init(url: URL, name: String, kind: Kind) {
+    init(url: URL, name: String, kind: Kind, libraryID: UUID) {
         self.url = url
         self.name = name
         self.kind = kind
+        self.libraryID = libraryID
     }
 
-    static func library(root: URL) -> SelectedItem {
-        SelectedItem(url: root, name: "Whole library", kind: .library)
+    /// The chat that searches every indexed file of a library.
+    static func library(_ record: LibraryRecord, root: URL) -> SelectedItem {
+        SelectedItem(url: root, name: record.name, kind: .library, libraryID: record.id)
     }
 }

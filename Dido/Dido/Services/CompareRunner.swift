@@ -24,7 +24,7 @@ struct CompareRunner {
         for (index, file) in chosen.enumerated() {
             try Task.checkCancellation()
             onProgress("Comparing \(index + 1) of \(chosen.count): \(file.name)…")
-            let item = SelectedItem(url: file.url, name: file.name, kind: .file)
+            let item = SelectedItem(url: file.url, name: file.name, kind: .file, libraryID: folder.libraryID)
             let context = await ContextBuilder().build(for: item, question: question, budget: provider.contextBudget / 2, includeImages: false)
             var answer = ""
             for try await event in llm.streamAnswer(question: question + "\n\nAnswer in at most three sentences for this one document.", history: [], context: context) {
