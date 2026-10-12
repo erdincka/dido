@@ -16,6 +16,7 @@ struct LibrarySidebarView: View {
     @AppStorage("sidebarRecentsExpanded") private var recentsExpanded = true
     /// Ids of the libraries the user collapsed, comma-separated.
     @AppStorage("sidebarCollapsedLibraries") private var collapsedLibraries = ""
+    @AppStorage("sidebarSortOrder") private var sortOrder: SidebarSortOrder = .name
 
     private var isSearching: Bool { !appState.searchText.isEmpty }
 
@@ -29,10 +30,14 @@ struct LibrarySidebarView: View {
             }
 
             if !chatStore.recentThreads.isEmpty && !isSearching {
-                Section("Recent chats", isExpanded: $recentsExpanded) {
-                    ForEach(chatStore.recentThreads.prefix(12), id: \.id) { thread in
-                        RecentThreadRow(thread: thread)
+                Section {
+                    if recentsExpanded {
+                        ForEach(chatStore.recentThreads.prefix(12), id: \.id) { thread in
+                            RecentThreadRow(thread: thread)
+                        }
                     }
+                } header: {
+                    CollapsibleSectionHeader(title: "Recent chats", isExpanded: $recentsExpanded)
                 }
             }
 
@@ -46,10 +51,13 @@ struct LibrarySidebarView: View {
             }
 
             ForEach(manager.active) { library in
-                Section(isExpanded: isSearching ? .constant(true) : expansionBinding(for: library.id)) {
-                    libraryRows(library)
+                let isExpanded = isSearching ? .constant(true) : expansionBinding(for: library.id)
+                Section {
+                    if isExpanded.wrappedValue {
+                        libraryRows(library)
+                    }
                 } header: {
-                    LibrarySectionHeader(library: library)
+                    LibrarySectionHeader(library: library, isExpanded: isExpanded)
                 }
             }
 
@@ -64,6 +72,19 @@ struct LibrarySidebarView: View {
         .navigationTitle("Dido")
         .searchable(text: $appState.searchText, isPresented: $appState.searchPresented, placement: .sidebar, prompt: "Search names and contents…")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Picker("Sort By", selection: $sortOrder) {
+                        ForEach(SidebarSortOrder.allCases) { order in
+                            Text(order.title).tag(order)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label("Sort By", systemImage: "arrow.up.arrow.down")
+                }
+                .help("Sort files and folders by \(sortOrder == .name ? "name" : "date modified")")
+            }
             ToolbarItem(placement: .primaryAction) {
                 SettingsLink {
                     Label("Settings", systemImage: "gearshape")
@@ -100,7 +121,7 @@ struct LibrarySidebarView: View {
         } else if (children[library.id] ?? []).isEmpty {
             Text("The folder is empty").font(.caption).foregroundStyle(.secondary)
         } else {
-            ForEach(children[library.id] ?? []) { item in
+            ForEach(sortOrder.sorted(children[library.id] ?? [])) { item in
                 SidebarNode(item: item)
             }
         }
@@ -175,6 +196,7 @@ struct LibrarySidebarView: View {
 struct SidebarNode: View {
     let item: FileItem
 
+    @AppStorage("sidebarSortOrder") private var sortOrder: SidebarSortOrder = .name
     @State private var isExpanded = false
     @State private var children: [FileItem]?
 
@@ -185,7 +207,7 @@ struct SidebarNode: View {
                     if children.isEmpty {
                         Text("Empty").font(.caption).foregroundStyle(.secondary)
                     } else {
-                        ForEach(children) { child in
+                        ForEach(sortOrder.sorted(children)) { child in
                             SidebarNode(item: child)
                         }
                     }

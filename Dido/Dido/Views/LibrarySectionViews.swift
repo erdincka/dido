@@ -3,13 +3,16 @@ import SwiftUI
 /// A library's name with its actions: ask, index, re-index, reveal, remove.
 struct LibrarySectionHeader: View {
     let library: LibraryRecord
+    @Binding var isExpanded: Bool
 
     private let appState = AppState.shared
     @State private var confirmRebuild = false
 
     var body: some View {
         HStack {
+            SectionChevron(isExpanded: $isExpanded)
             Text(library.name)
+                .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() } }
             Spacer()
             Menu {
                 actions
@@ -42,6 +45,43 @@ struct LibrarySectionHeader: View {
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([root]) }
         Divider()
         Button("Remove from Dido") { appState.removeLibrary(library.id) }
+    }
+}
+
+/// An always-visible disclosure chevron for a sidebar section header.
+/// `Section(isExpanded:)` only shows its chevron on hover, which draws the eye as the pointer moves.
+struct SectionChevron: View {
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() }
+        } label: {
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .frame(width: 12, height: 12)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isExpanded ? "Collapse" : "Expand")
+    }
+}
+
+/// A plain section title with an always-visible chevron.
+struct CollapsibleSectionHeader: View {
+    let title: String
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        HStack {
+            SectionChevron(isExpanded: $isExpanded)
+            Text(title)
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation(.easeInOut(duration: 0.15)) { isExpanded.toggle() } }
     }
 }
 

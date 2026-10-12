@@ -52,3 +52,38 @@ struct FileItem: Identifiable, Hashable, Sendable {
         return relative.isEmpty ? "." : relative
     }
 }
+
+/// How the sidebar orders a folder's contents. Stored in `UserDefaults` under `sidebarSortOrder`.
+enum SidebarSortOrder: String, CaseIterable, Identifiable, Sendable {
+    /// Folders first, then files, both by name in Finder order.
+    case name
+    /// Most recently modified first, folders and files mixed.
+    case dateModified
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .name: return "Name"
+        case .dateModified: return "Date Modified"
+        }
+    }
+
+    /// Returns `items` in this order; ties and missing dates fall back to the name.
+    func sorted(_ items: [FileItem]) -> [FileItem] {
+        switch self {
+        case .name:
+            return items.sorted { a, b in
+                if a.isDirectory != b.isDirectory { return a.isDirectory }
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            }
+        case .dateModified:
+            return items.sorted { a, b in
+                let dateA = a.modificationDate ?? .distantPast
+                let dateB = b.modificationDate ?? .distantPast
+                if dateA != dateB { return dateA > dateB }
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            }
+        }
+    }
+}

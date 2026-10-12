@@ -42,6 +42,7 @@ Fix what is broken before adding anything.
 - [x] OCR for scanned PDFs and images with the Vision framework.
 - [x] Preview pane beside the chat: Markdown, PDF and Quick Look.
 - [x] Content search in the sidebar, not just file names.
+- [x] Sidebar sections show their disclosure chevron at all times; files and folders sort by name or date modified.
 
 ## Phase 4: Polish (done 2026-09-22)
 
